@@ -733,6 +733,12 @@ const Audio_={
     // the filter and into the reverb directly.
     this.fx=ac.createGain();this.fx.gain.value=1;
     this.fx.connect(comp);this.fx.connect(rev);
+    // Every planted cell adds a voice and none are ever removed: 25 a macro, so a
+    // two-hour grading block stacks past a hundred oscillators at fixed gain and
+    // the mix turns to mud. CLAUDE.md says that is a mixing problem to solve, not
+    // a reason to cap the garden — so the voice bus loses gain as the choir grows
+    // and every voice is kept.
+    this.vbus=ac.createGain();this.vbus.gain.value=1;this.vbus.connect(this.bus);
     comp.connect(this.master);this.master.connect(ac.destination);
     this.master.gain.linearRampToValueAtTime(0.0,ac.currentTime);
     this.master.gain.linearRampToValueAtTime(0.85,ac.currentTime+3);
@@ -759,7 +765,7 @@ const Audio_={
     const freq=55*Math.pow(2,deg/12);
     const g=ac.createGain();g.gain.value=0;
     const pan=ac.createStereoPanner?ac.createStereoPanner():null;
-    if(pan){pan.pan.value=(x/W)*1.6-0.8;g.connect(pan);pan.connect(this.bus)}else g.connect(this.bus);
+    if(pan){pan.pan.value=(x/W)*1.6-0.8;g.connect(pan);pan.connect(this.vbus)}else g.connect(this.vbus);
     const nodes=[];
     if(cls==='gone'){
       const buf=ac.createBuffer(1,ac.sampleRate*2,ac.sampleRate);
@@ -785,6 +791,10 @@ const Audio_={
     g.gain.linearRampToValueAtTime(0.11,t+0.35);
     g.gain.linearRampToValueAtTime(0.055,t+2.4);
     this.voices.push({g,nodes,cls});
+    // 1/sqrt(n): the choir thickens, each voice recedes, headroom holds.
+    const dens=Math.min(1,3.2/Math.sqrt(this.voices.length+8));
+    this.vbus.gain.cancelScheduledValues(t);
+    this.vbus.gain.linearRampToValueAtTime(dens,t+1.5);
   },
   /* One struck tone, pitched by row and panned by column on the same
      minor-pentatonic grid the drone voices use, so a tap is always in key with
@@ -821,6 +831,27 @@ const Audio_={
     g.gain.linearRampToValueAtTime(peak,t+0.012);
     g.gain.exponentialRampToValueAtTime(0.0006,t+dur);
     o.start(t);o2.start(t);o.stop(t+dur+0.4);o2.stop(t+dur+0.4);
+  },
+  /* The pad has been static since the first tap. Tying it to how much of the
+     grid is alive makes the drone a function of the garden rather than a bed
+     under it — the thing fills out as the session accumulates. */
+  setDensity(d){
+    if(!this.ac||!this.pad)return;
+    const t=this.ac.currentTime;
+    if(t-(this._lastDens||0)<2.5)return;
+    this._lastDens=t;
+    this.pad.forEach(p=>{
+      p.g.gain.cancelScheduledValues(t);
+      p.g.gain.linearRampToValueAtTime(0.042+Math.min(0.45,d)*0.16,t+2.4);
+    });
+  },
+  /* The last seconds before a bloom lift the filter a little, so the bloom is
+     arrived at rather than switched on. No UI, no number to watch. */
+  preLift(){
+    if(!this.ac)return;
+    const t=this.ac.currentTime;
+    this.filter.frequency.cancelScheduledValues(t);
+    this.filter.frequency.linearRampToValueAtTime(720,t+7.5);
   },
   setOpen(v,secs=2.5){
     if(!this.ac)return;
@@ -995,7 +1026,12 @@ function tick(){
       enterBloom();
     }
     // slow ambient growth
-    if(!S._lastStep||t-S._lastStep>WORK_STEP_MS){S._lastStep=t;g.advance();paint(g,off,octx,img)}
+    if(!S._lastStep||t-S._lastStep>WORK_STEP_MS){
+      S._lastStep=t;g.advance();paint(g,off,octx,img);
+      Audio_.setDensity(g.living/N);
+    }
+    // arrive at the bloom instead of cutting to it
+    if(!S._preBloom&&macroLen-(t-S.macroAt)<8000){S._preBloom=true;Audio_.preLift()}
   }
   else if(S.mode==="bloom"){
     // Advance toward a fixed budget by elapsed fraction, not per frame, so the
@@ -1070,8 +1106,9 @@ function enterBreak(){
 }
 function resumeWork(){
   const t=now();
-  S.mode='work';
+  S.mode="work";
   S.microAt=t;S.mesoAt=t;S.macroAt=t;
+  S._preBloom=false;
   Audio_.setOpen(false,4);
   renderAct();
 }
@@ -1084,7 +1121,10 @@ function renderAct(){
   if(S.mode==='paused'){
     add('btn big','Resume',()=>{
       const d=now()-S._pausedAt;
-      S.microAt+=d;S.mesoAt+=d;S.macroAt+=d;S.breakEnds+=d;S.bloomUntil+=d;
+      S.microAt+=d;S.mesoAt+=d;S.macroAt+=d;
+      // only shift the deadlines that are live in the mode being resumed
+      if(S.resumeMode==="break")S.breakEnds+=d;
+      if(S.resumeMode==="bloom")S.bloomUntil+=d;
       S.mode=S.resumeMode;Audio_.hush(false);renderAct();
     });
     add('btn quiet','End session and keep the garden',endSession);
@@ -1098,7 +1138,10 @@ function renderAct(){
     const p=document.createElement('div');p.className='ask';
     p.textContent='the garden is awake; you are not needed';
     act.appendChild(p);
-    add('btn quiet','Skip the break',()=>{resumeWork()});
+    // No "Skip the break". SPEC v0.2 resolved it: a one-tap way to throw away
+    // what the work bought invites exactly the self-defeat this app exists to
+    // interrupt. The escape hatch is ending the session, behind Pause, which
+    // keeps the garden.
     return;
   }
   // work
