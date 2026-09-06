@@ -10,8 +10,9 @@ Reward is a cellular-automaton garden plus a generative drone. The garden grows
 slowly and quietly during work, then blooms — fast-forwards, filters open — when
 the long timer completes and the break begins.
 
-Single self-contained `index.html`. No build step, no dependencies, no framework.
-Keep it that way. It has to be openable from a file URL on an Android phone.
+Target is an installed Android app. See SPEC.md § Platform target for why that
+means a PWA now and possibly an APK later, and why it never means a native
+rewrite.
 
 ## The success metric
 
@@ -20,22 +21,43 @@ change makes the app more engaging but more interruptive, it is a regression.
 
 ## Hard constraints
 
-- **One file.** Inline CSS and JS. Only external resource is the Google Fonts link.
-- **The sim must stay deterministic.** Persistence saves a seed log (species, x, y,
-  step index) plus an RNG seed — not pixels. Replay re-runs the sim from the seed
-  and must produce a byte-identical garden and the same voice order. Any new
-  randomness must come from `Garden.rng` (mulberry32), never `Math.random`,
-  and must be consumed in a fixed order per step. This is the one invariant that
-  will silently break if someone adds a `Math.random()` to a growth rule.
+- **No build step, no framework, no dependencies.** `index.html` is the entire
+  application — inline CSS, inline JS, editable with nothing installed. The only
+  other files are platform metadata (manifest, service worker, icons) and they
+  contain no application logic. If a change wants a bundler, the change is wrong.
+
+- **The sim must stay deterministic.** Persistence saves a seed log (species, x,
+  y, step index) plus an RNG seed and grid dimensions — not pixels. Replay
+  re-runs the sim and must produce a byte-identical garden and the same voice
+  order. Three ways this breaks, all of which have already happened once:
+
+  1. `Math.random()` anywhere in a growth rule. All randomness comes from
+     `Garden.rng` (mulberry32) and is consumed in a fixed order per step.
+  2. Reading mutable session state from inside a rule. The lattice bug read
+     `this.colonies.length`, which changes as the session goes on, so the same
+     cell behaved differently on replay than it did live. **A rule may read the
+     grid and its own colony record. Nothing else.**
+  3. Wall-clock time entering the sim. Timers are wall-clock; the simulation is
+     not. Growth rules never see `performance.now()`.
+
+  Any change to a growth rule invalidates every stored garden. Grid dimensions
+  live in the archive entry so at least the *shape* stays recoverable.
+
 - **Nothing is documented in the UI.** No legend, no species names on screen, no
   tooltips explaining what rot does. Discovery is the content. Copy stays terse
   and slightly unfriendly.
-- **Timers are wall-clock, not tick-counted.** They already use `performance.now()`
+
+- **Timers are wall-clock, not tick-counted.** They use `performance.now()`
   deltas. Do not convert to interval counting; the phone throttles background rAF.
-- **Storage:** `window.storage` only (artifact-hosted key/value). Wrapped in
-  try/catch everywhere; the app must run with storage entirely absent.
+
+- **Storage goes through the `Store` adapter, never directly.** It is async,
+  wrapped in try/catch at every call site, and the app must run correctly with
+  storage entirely absent — no config, no archive, no errors. `localStorage`
+  today; a phase-2 APK swaps the adapter body and nothing else.
+
 - **No streaks, no shame, no notifications.** Missing a tap plants nothing. That
-  is the whole punishment. Never add a "you broke your streak" state.
+  is the whole punishment. Never add a "you broke your streak" state. An APK
+  makes notifications easy; that is not a reason to add them.
 
 ## The three loops
 
@@ -66,6 +88,10 @@ that doubles growth rate for whatever grows on it; mycelium hunts across the fie
 for a foreign colony and mutates a disc of it into a random species on contact;
 mouth eats an expanding ring and leaves rich substrate behind.
 
+**The sim currently has almost no mortality**, which is why field test 1 produced
+one undifferentiated green maze. Rebalancing means adding death, not subtracting
+growth. See SPEC.md § Direction for the rebalance.
+
 ## Audio
 
 Web Audio, continuous from session start. One voice per planted cell: pitch by
@@ -78,9 +104,19 @@ The user makes drone/noise music. Audio is not an accessory here — it is half 
 reward, and it is the half that does not require looking away from the essay.
 Treat it with the same care as the visuals.
 
+Confirmed working on Android. Voices accumulate for the life of a session and are
+never pruned; if a long multi-macro session ever runs out of headroom, that is a
+mixing problem to solve, not a reason to cap the garden.
+
 ## Working style
 
 Field-test changes on a phone before polishing them. The numbers that matter
 (is 90 seconds too often, does the break feel earned) are only visible while
-actually grading. See BUGS.md for the first field test's findings and SPEC.md for
-the reasoning behind the design.
+actually grading — and field test 1's numbers do not count, because it ran inside
+the artifact viewer with 40% of the screen taken by chrome.
+
+Before shipping a change that touches a growth rule, verify replay equality: two
+`regrow()` calls on the same archive entry must produce identical grids.
+
+BUGS.md is the running defect record. SPEC.md holds the reasoning, the resolved
+questions, and the ones still open.
