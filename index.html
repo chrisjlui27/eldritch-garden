@@ -640,6 +640,11 @@ const view={sc:1,ox:0,oy:0};
 
 const ripples=[];
 const RIPPLE_MS=920;
+// Touch is the one channel that does not cost a glance at the essay, so the tap
+// answers in the hand as well as the ear. Short and flat — no escalation, no
+// pattern that could read as praise.
+const REDUCED=(window.matchMedia&&matchMedia("(prefers-reduced-motion:reduce)").matches)||false;
+function buzz(p){try{if(navigator.vibrate)navigator.vibrate(p)}catch(e){}}
 
 function blit(){
   const r=cv.getBoundingClientRect();
@@ -669,13 +674,21 @@ function drawRipples(){
   for(let k=ripples.length-1;k>=0;k--){
     const rp=ripples[k],age=t-rp.t0;
     if(age>RIPPLE_MS){ripples.splice(k,1);continue}
-    const f=age/RIPPLE_MS, ease=1-Math.pow(1-f,2.4);
+    const f=age/RIPPLE_MS;
     const cx=view.ox+(rp.gx+0.5)*view.sc, cy=view.oy+(rp.gy+0.5)*view.sc;
-    const rad=(1.5+ease*(rp.strong?30:19))*view.sc;
-    ctx.beginPath();ctx.arc(cx,cy,rad,0,Math.PI*2);
-    ctx.strokeStyle=(rp.strong?'rgba(201,176,114,':'rgba(122,143,92,')+((rp.strong?0.62:0.42)*(1-f)).toFixed(3)+')';
-    ctx.lineWidth=Math.max(1,(rp.strong?2.1:1.5)*view.sc*(1-f*0.7));
-    ctx.stroke();
+    // Two rings, the second lagging: one circle is a splash, water has a trail.
+    for(let ri=0;ri<(rp.strong?2:1);ri++){
+      const lag=ri*0.18;
+      if(f<=lag)continue;
+      const f2=(f-lag)/(1-lag), ease=1-Math.pow(1-f2,2.4);
+      // starts at a fingertip, not a point
+      const rad=(2.6+ease*(rp.strong?29:18))*view.sc;
+      const a=(rp.strong?0.60:0.40)*(1-f2)*(ri?0.5:1);
+      ctx.beginPath();ctx.arc(cx,cy,rad,0,Math.PI*2);
+      ctx.strokeStyle=(rp.strong?"rgba(201,176,114,":"rgba(122,143,92,")+a.toFixed(3)+")";
+      ctx.lineWidth=Math.max(1,(rp.strong?2.1:1.5)*view.sc*(1-f2*0.7));
+      ctx.stroke();
+    }
   }
 }
 
@@ -783,7 +796,10 @@ const Audio_={
     if(t-(this._lastChime||0)<0.11)return;   // a flurry of taps must not become noise
     this._lastChime=t;
     const deg=this.scale[Math.min(this.scale.length-1,Math.floor((1-y/H)*this.scale.length))];
-    const freq=55*Math.pow(2,deg/12)*4;
+    // A plant rings an octave above an idle touch: same pitch class, more event.
+    // At *4 for both, idle taps sat near 1.7 kHz and shrieked over a drone that
+    // lives under 340.
+    const freq=55*Math.pow(2,deg/12)*(strong?4:2);
     const g=ac.createGain();g.gain.value=0;
     const pan=ac.createStereoPanner?ac.createStereoPanner():null;
     if(pan){pan.pan.value=(x/W)*1.6-0.8;g.connect(pan);pan.connect(this.fx)}else g.connect(this.fx);
@@ -791,6 +807,16 @@ const Audio_={
     const o2=ac.createOscillator();o2.type="sine";o2.frequency.value=freq*3.006;
     const g2=ac.createGain();g2.gain.value=strong?0.26:0.13;
     o2.connect(g2);g2.connect(g);o.connect(g);
+    // A struck thing has an inharmonic transient. Two clean sines read synthetic,
+    // so a 50 ms filtered noise burst goes under the attack. Math.random is fine
+    // here — this is audio, not the simulation, and never touches Garden.rng.
+    const nb=ac.createBuffer(1,Math.floor(ac.sampleRate*0.05),ac.sampleRate);
+    const nd=nb.getChannelData(0);
+    for(let i=0;i<nd.length;i++)nd[i]=(Math.random()*2-1)*Math.pow(1-i/nd.length,3);
+    const ns=ac.createBufferSource();ns.buffer=nb;
+    const nf=ac.createBiquadFilter();nf.type="bandpass";nf.frequency.value=freq*2.4;nf.Q.value=2.2;
+    const ng=ac.createGain();ng.gain.value=strong?0.10:0.055;
+    ns.connect(nf);nf.connect(ng);ng.connect(g);ns.start(t);
     const peak=strong?0.15:0.075,dur=strong?2.1:1.3;
     g.gain.linearRampToValueAtTime(peak,t+0.012);
     g.gain.exponentialRampToValueAtTime(0.0006,t+dur);
@@ -872,8 +898,9 @@ function plantSeed(species,kind,at){
   g.plant(species,x,y);
   S.log.push({step:g.step,species,x,y,kind});
   Audio_.addVoice(species,x,y);
-  ripples.push({gx:x,gy:y,t0:performance.now(),strong:true});
+  if(!REDUCED)ripples.push({gx:x,gy:y,t0:performance.now(),strong:true});
   Audio_.chime(x,y,true);
+  buzz([0,14,26,10]);
   if(ripples.length>14)ripples.splice(0,ripples.length-14);
   return [x,y];
 }
@@ -901,9 +928,10 @@ function gardenTap(ev){
   }
   if(t-lastTap<150)return;
   lastTap=t;
-  ripples.push({gx:p[0],gy:p[1],t0:t,strong:false});
+  if(!REDUCED)ripples.push({gx:p[0],gy:p[1],t0:t,strong:false});
   if(ripples.length>14)ripples.splice(0,ripples.length-14);
   Audio_.chime(p[0],p[1],false);
+  buzz(8);
 }
 cv.addEventListener('pointerdown',gardenTap);
 
@@ -912,13 +940,13 @@ cv.addEventListener('pointerdown',gardenTap);
    thing does is still yours to discover. Its own Garden, so it cannot disturb
    the session's streams. */
 function seedPreview(species,px){
-  const c=document.createElement('canvas');c.width=27;c.height=27;
+  const c=document.createElement("canvas");c.width=22;c.height=22;
   const g=new Garden((0x5eed^(species*2654435761))>>>0);
   g.plant(species,38,56);
-  for(let s=0;s<20;s++)g.advance();
-  const tc=c.getContext('2d'),im=tc.createImageData(27,27),d=im.data;
-  for(let yy=0;yy<27;yy++)for(let xx=0;xx<27;xx++){
-    const gx=25+xx,gy=43+yy,o=(yy*27+xx)*4;
+  for(let s=0;s<34;s++)g.advance();   // 20 steps showed almost nothing to choose between
+  const tc=c.getContext("2d"),im=tc.createImageData(22,22),d=im.data;
+  for(let yy=0;yy<22;yy++)for(let xx=0;xx<22;xx++){
+    const gx=27+xx,gy=45+yy,o=(yy*22+xx)*4;
     let col=[20,23,15];
     if(g.inb(gx,gy)){
       const j=g.idx(gx,gy);
@@ -1081,7 +1109,7 @@ function renderAct(){
     S.pendingChoice.forEach(spc=>{
       const b=document.createElement("button");b.className="btn";
       b.style.cssText="display:flex;align-items:center;justify-content:center;padding:13px 4px";
-      b.appendChild(seedPreview(spc,56));
+      b.appendChild(seedPreview(spc,62));
       b.onclick=()=>{S.pendingChoice=null;plantSeed(spc,"locked");renderAct()};
       row.appendChild(b);
     });
