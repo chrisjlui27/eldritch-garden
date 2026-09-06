@@ -241,7 +241,7 @@ class Garden{
 
   openSpot(){
     // find a location with breathing room
-    let best=null,bestScore=-1;
+    let best=null,bestScore=-Infinity;
     for(let t=0;t<40;t++){
       const x=3+Math.floor(this.rng()*(W-6));
       const y=3+Math.floor(this.rng()*(H-6));
@@ -253,6 +253,11 @@ class Garden{
       const score=-occ+this.rng()*2;
       if(score>bestScore){bestScore=score;best=[x,y]}
     }
+    // -Infinity guarantees the first candidate wins, so this fallback should be
+    // unreachable. It consumes no rng() unless it fires, so it cannot shift the
+    // stream and break replay. Belt and braces around the one crash that ate a
+    // whole field test.
+    if(!best)best=[1+Math.floor(this.rng()*(W-2)),1+Math.floor(this.rng()*(H-2))];
     return best;
   }
 
@@ -465,8 +470,11 @@ function blit(){
   }
   ctx.imageSmoothingEnabled=false;
   ctx.fillStyle='#14170f';ctx.fillRect(0,0,cv.width,cv.height);
-  // cover-fit the grid
-  const sc=Math.max(cv.width/W,cv.height/H);
+  // contain-fit: never crop the grid. Growth at the edges is content, and the
+  // ochre bars in field test 1 were bead piling up against a boundary nobody
+  // could see. Letterboxing is the lesser evil until the grid aspect is retuned
+  // against a real fullscreen stage.
+  const sc=Math.min(cv.width/W,cv.height/H);
   const dw=W*sc,dh=H*sc;
   ctx.drawImage(off,(cv.width-dw)/2,(cv.height-dh)/2,dw,dh);
 }
@@ -821,6 +829,8 @@ async function endSession(){
   const entry={
     id:'g'+Date.now(),
     seed:S.seed,
+    w:W,h:H,          // see BUGS.md 7.3 - without these, any grid change
+                      // silently invalidates this entry with no way to detect it
     log:S.log,
     tally:S.tally,
     cycles:S.cycles,
