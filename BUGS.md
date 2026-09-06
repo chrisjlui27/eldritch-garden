@@ -9,7 +9,7 @@ could not have surfaced.
 
 ---
 
-## 1. `openSpot()` returns null once the grid is crowded — CRASH · OPEN
+## 1. `openSpot()` returns null once the grid is crowded — CRASH · FIXED
 
 **Symptom:** repeating `Uncaught TypeError: object null is not iterable (cannot
 read property Symbol.iterator)`. Fired continuously from about 12 minutes in.
@@ -38,7 +38,7 @@ archive.
 
 ---
 
-## 2. Lattice has a dead parity check, floods the grid, and breaks replay · OPEN
+## 2. Lattice: dead parity check, flood, and a replay break · FIXED
 
 ```js
 if(((tx+ty)&1)===((this.colonies.length)&1)||true){put(tx,ty,SP.lattice)}
@@ -63,7 +63,7 @@ stored on the colony record. Cap colony extent. Then verify replay equality.
 
 ---
 
-## 3. The whole garden reads as one green maze · OPEN
+## 3. The whole garden reads as one green maze · FIXED
 
 All four screenshots show near-total coverage in crust/filament green within one
 macro cycle. Individual species are indistinguishable, and the rot family shows
@@ -83,7 +83,7 @@ tuning on crust/bead/filament. Tune against multi-macro sessions, not one.
 
 ---
 
-## 4. Canvas uses cover-fit, cropping the grid · OPEN
+## 4. Canvas uses cover-fit, cropping the grid · FIXED
 
 `blit()` uses `Math.max(cv.width/W, cv.height/H)`, so the grid is cropped on the
 short axis and growth happening off-screen is invisible. The ochre vertical bars
@@ -110,7 +110,7 @@ before. Grid dimensions must be recorded per archive entry either way (see §7.3
 
 ---
 
-## 6. Smaller things · OPEN
+## 6. Smaller things · MOSTLY FIXED
 
 - The bloom is 9 seconds. Probably wants to be 20–30 — it is the payoff for
   half an hour of work and it currently reads as a blip.
@@ -185,7 +185,7 @@ designed for. Anything the test says about pacing, density, or whether the bloom
 lands needs re-measuring on the phase-1 shell. The crash (§1) and the flood (§2)
 are real regardless — those are source defects, not observations.
 
-### 7.5 `plant()` consumes a variable number of RNG draws · OPEN, low
+### 7.5 `plant()` consumes a variable number of RNG draws · RESOLVED
 
 `plant()` draws `2 + floor(rng()*4)` cluster cells, then one `rng()` per cell for
 direction, so the number of draws depends on the first draw. That is fine for
@@ -193,3 +193,78 @@ determinism — replay runs the same code — but it means the RNG stream positi
 after N plants is not predictable from N alone, and any future change to plant
 ordering, or any dedup of the log, shifts every subsequent draw. Fragile rather
 than broken. A replay-equality assertion in the archive path would catch it.
+
+---
+
+## 8. Status after the rebalance pass
+
+**§1 openSpot crash — FIXED.** `bestScore` initialises to `-Infinity` plus an
+unreachable fallback. Reproduced against the old code first (355 nulls in 400
+plants, first at #37); now 0 nulls at any load.
+
+**§2 lattice — FIXED.** Parity comes from the colony's own id, carried on the new
+`cid` array. The `this.colonies.length` read is gone, so the rule is
+replay-stable. Note the fix BUGS.md originally proposed would not have worked:
+diagonal moves preserve `(x+y)` parity, so checking the *cell's* parity is a
+tautology. It only bites against the *colony's* parity, because `plant()` seeds a
+mixed-parity cluster with orthogonal steps.
+
+**§3 the green maze — FIXED.** ~23 legible colonies at 21–26% coverage, against
+100% before. See SPEC.md § The rebalance, as built — the load-bearing lever was
+the per-colony standing cap, not mortality.
+
+**§4 cover-fit — FIXED.** Contain-fit, verified visually.
+
+**§6 — mouth decay fixed, bloom now 22 s, "Skip the break" removed, pause math
+fixed.** Still open: whether 90 s is the right micro (§7.4 — needs a real field
+test), which is now the only item left on that list.
+
+**§7.5 — RESOLVED** by the RNG split, not by removing the variance. `plant()`
+still draws a variable number of times, but it draws from the growth stream only,
+and both live and replay call it identically. The fragility was never the
+variance — it was that `openSpot` and species selection shared that stream.
+
+### 8.1 Replay never matched the session it recorded · FIXED
+
+Not previously known. Live, `plantSeed` consumed `Garden.rng` for the species
+pick and roughly 80 draws for `openSpot`; replay read both from the log and
+consumed neither, so the growth stream was offset from the first plant onward and
+every subsequent step diverged. SPEC calls byte-identical replay the one hard
+invariant — it had never held.
+
+Fixed by splitting the RNG: `rng` for growth and cluster shape, `pick` for
+session decisions. Replay is now byte-identical to the session it recorded,
+verified over 900 steps including substrate. See CLAUDE.md, determinism item 4.
+
+### 8.2 Bloom and break stepping was frame-rate dependent · FIXED
+
+The bloom ran 7 steps per animation frame for 9 seconds — about 3,800 steps
+against roughly 1,000 for the entire work period — and the break added another
+1,500. The garden was evolving mostly while nobody was working, which is backwards
+for a reward meant to be fed by attention. It was also frame-rate dependent, so a
+fast phone and a slow one ended on different gardens.
+
+The bloom is now a fixed step budget spread across its duration by elapsed
+fraction. Break stepping slowed to a simmer.
+
+### 8.3 Archive thumbnails were squashed · FIXED
+
+`.entry canvas` forced a 76×112 grid into a 52px square, distorting every
+thumbnail by about 32%. Now 44×65.
+
+### 8.4 Still open
+
+- **Micro at 90 seconds** (§6, §7.4) — the core design question, still unmeasured.
+- **Wake lock** (§5) — never confirmed on a real 30-minute session.
+- **Break bonus** (§5) — arithmetic reads correct, unconfirmed in the field.
+- **Service worker** (§7.2) — parses, never observed installing.
+- **Multi-macro sessions** — the rebalance is tuned against one macro. A second
+  bloom on an already-populated field is untested, and it is the likeliest place
+  for this tuning to fall over.
+- **The gone family burns out.** rot, mouth and mycelium are all transient by
+  construction: rot converts until it runs out of neighbours then ages out, mouth
+  eats a ring and decays to substrate, mycelium mutates once and stops. Planted
+  early, none of them are visible at the bloom — only their scars. The design
+  promises the gone family produces the wildest growth, and right now it produces
+  the most dramatic *absence*. Whether that reads as eldritch or as nothing is a
+  judgment call for a real session.

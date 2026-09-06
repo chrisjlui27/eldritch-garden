@@ -106,7 +106,7 @@
     font-family:inherit;font-size:22px;text-align:center;padding:9px;border-radius:2px;
   }
   .entry{border-bottom:1px solid #232a1a;padding:14px 0;display:flex;align-items:center;gap:14px}
-  .entry canvas{width:52px;height:52px;flex:0 0 auto;background:var(--field);image-rendering:pixelated;border-radius:2px}
+  .entry canvas{width:44px;height:65px;flex:0 0 auto;background:var(--field);image-rendering:pixelated;border-radius:2px}
   .entry .meta{flex:1;line-height:1.3}
   .entry .meta b{font-weight:400;font-size:19px;display:block}
   .entry .meta span{font-size:14px;color:var(--dim);font-style:italic}
@@ -616,16 +616,26 @@ const off=document.createElement('canvas');off.width=W;off.height=H;
 const octx=off.getContext('2d');
 const img=octx.createImageData(W,H);
 
-function paint(g,target,tctx,timg){
-  const d=timg.data;
+/* `lift` brightens the whole field during the bloom. Everything else here is a
+   pure function of sim state — no randomness, nothing stored — so rendering can
+   never affect replay. */
+function paint(g,target,tctx,timg,lift){
+  const d=timg.data, L=lift||0, LM=1+L*0.4;
   for(let i=0;i<N;i++){
     const s=g.sp[i];const o=i*4;
     if(s){
       const c=COLOR[s];
-      d[o]=c[0];d[o+1]=c[1];d[o+2]=c[2];d[o+3]=255;
+      // Shade by how far through its life the cell is: the growing rim stays
+      // bright, the old core goes dim. A colony then carries its own history as
+      // a gradient instead of reading as a flat stamp of one colour.
+      const t=TRAIT[s];
+      const k=(t?1.16-Math.min(1,g.age[i]/t.life)*0.36:1)*LM;
+      d[o]=Math.min(255,c[0]*k);d[o+1]=Math.min(255,c[1]*k);d[o+2]=Math.min(255,c[2]*k);d[o+3]=255;
     } else if(g.sub[i]){
+      // scars sat almost on top of the background; lifted enough to read as
+      // ground that remembers something without competing with living cells
       const t=g.sub[i];
-      d[o]=30+t*9;d[o+1]=36+t*7;d[o+2]=22+t*5;d[o+3]=255;
+      d[o]=27+t*11;d[o+1]=32+t*9;d[o+2]=19+t*7;d[o+3]=255;
     } else {
       d[o]=20;d[o+1]=23;d[o+2]=15;d[o+3]=255;
     }
@@ -633,10 +643,22 @@ function paint(g,target,tctx,timg){
   tctx.putImageData(timg,0,0);
 }
 
+
 /* The contain-fit transform, kept in one place because two things need it: the
    blit that draws the grid, and the hit test that turns a thumb into a cell. If
    they ever disagree, taps land somewhere other than where they look. */
 const view={sc:1,ox:0,oy:0};
+
+let vig=null,vigW=0,vigH=0;
+function vignette(){
+  if(vig&&vigW===cv.width&&vigH===cv.height)return vig;   // rebuilt only on resize
+  vigW=cv.width;vigH=cv.height;
+  const mn=Math.min(cv.width,cv.height),mx=Math.max(cv.width,cv.height);
+  vig=ctx.createRadialGradient(cv.width/2,cv.height/2,mn*0.36,cv.width/2,cv.height/2,mx*0.76);
+  vig.addColorStop(0,"rgba(0,0,0,0)");
+  vig.addColorStop(1,"rgba(0,0,0,0.36)");
+  return vig;
+}
 
 const ripples=[];
 const RIPPLE_MS=920;
@@ -662,6 +684,7 @@ function blit(){
   const dw=W*sc,dh=H*sc;
   view.sc=sc;view.ox=(cv.width-dw)/2;view.oy=(cv.height-dh)/2;
   ctx.drawImage(off,view.ox,view.oy,dw,dh);
+  ctx.fillStyle=vignette();ctx.fillRect(0,0,cv.width,cv.height);
   drawRipples();
 }
 
@@ -1041,7 +1064,7 @@ function tick(){
     const want=Math.round(frac*BLOOM_STEPS);
     let guard=0;
     while(S._bloomDone<want&&guard<24){g.advance();S._bloomDone++;guard++}
-    paint(g,off,octx,img);
+    paint(g,off,octx,img,Math.sin(frac*Math.PI));
     if(t>S.bloomUntil)enterBreak();
   }
   else if(S.mode==='break'){

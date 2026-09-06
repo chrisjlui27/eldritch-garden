@@ -114,23 +114,33 @@ isolated pixels, so the bloom had nothing to reveal. Three causes, all structura
 - **Nothing ages out anywhere in the sim.** There is no mortality except crowded
   crust. Every rule adds cells; almost none remove them.
 
-### Direction for the rebalance
+### The rebalance, as built
 
-The target is a dozen distinct organisms competing, not a texture. Four levers,
-in rough order of expected effect:
+The target was a dozen distinct organisms competing, not a texture. Four levers
+were proposed; the order of importance turned out to be different from the guess.
 
-1. **Mortality.** Every species gets a lifespan or an energy budget. Death leaves
-   substrate, so the corpse still feeds the next thing — the field should have
-   history in it, not just present tense.
-2. **A global population ceiling** around 35–45% of living cells, above which
-   cell-creating rules are skipped. This must derive from sim state, never from
-   wall-clock time, or replay breaks.
-3. **Per-colony extent caps**, so a colony stays a legible object rather than
-   dissolving into the field.
-4. **Rate tuning** on the worst offenders — crust's spread probability, bead's
-   permanence, filament's free tail.
+1. **Per-colony standing cap** — how many cells a colony may hold at once. This
+   is the load-bearing lever and it was not on the original list. Mortality alone
+   *inverts* the design: species that reproduce in place (crust, spire) renew
+   themselves with young cells indefinitely, while movers and converters age out.
+   The first tuning pass produced a field of nothing but crust and spire, with
+   the entire gone family absent — the dullest species crowding out the ones the
+   design depends on. A standing cap bounds every colony the same way.
+2. **Mortality.** A lifespan per species, probabilistic past the threshold so a
+   colony fades from its oldest cells outward. Death leaves substrate: the corpse
+   still feeds the next thing, and the ground keeps a scar permanently.
+3. **Per-colony extent caps**, so a colony holds a shape.
+4. **Rate tuning** on crust, bead and filament.
 
-This must be tuned against **multi-macro** sessions, not one. See open question 4.
+Plus a global ceiling, which in practice acts only as a backstop.
+
+**Coverage lands at 21–26%, not the 35–45% this spec originally guessed.** That
+number was written when a population ceiling was expected to do the shaping. With
+colony caps doing it instead, the ceiling is rarely reached, and the lower figure
+reads better: negative space is what lets ~23 colonies be told apart. The number
+was a means, not the goal, and the goal is met. Left low deliberately.
+
+Still to be tuned against **multi-macro** sessions. See open question 4.
 
 ### Undocumented interactions that survive any refactor
 
@@ -217,8 +227,14 @@ saved and simply stops. Whether the garden should get a final short bloom on
 - **Cross-session accumulation of a single persistent garden.** Decay would punish
   weekends and sick days; no decay makes it a monotonic counter. Per-session
   gardens plus an archive gives permanence without a debt mechanic.
-- **Choice of two seeds at the meso prompt.** Redundant with the three-way answer
-  and adds a decision at the worst moment.
+- ~~**Choice of two seeds at the meso prompt.**~~ **Reversed.** It now exists,
+  scoped to Locked in only. The original objection — a decision at the worst
+  moment — holds for Drifted and Gone, and those still plant instantly; someone
+  who has just admitted they were gone is the last person to hand a choice. But
+  Locked in is by definition the answer that means you had attention to spare,
+  and the two options are shown as the species actually grown for a few steps
+  rather than named, so the no-legend rule survives and picking is a look rather
+  than a read.
 - **Streaks and any failure penalty.** Missing a tap plants nothing; that is all.
 - **Any legend, tutorial, or species reference.**
 - **A native Android rewrite.** See Platform target.

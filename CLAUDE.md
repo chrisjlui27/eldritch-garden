@@ -27,21 +27,36 @@ change makes the app more engaging but more interruptive, it is a regression.
   contain no application logic. If a change wants a bundler, the change is wrong.
 
 - **The sim must stay deterministic.** Persistence saves a seed log (species, x,
-  y, step index) plus an RNG seed and grid dimensions — not pixels. Replay
-  re-runs the sim and must produce a byte-identical garden and the same voice
-  order. Three ways this breaks, all of which have already happened once:
+  y, step index) plus an RNG seed, grid dimensions and the final step count —
+  not pixels. Replay re-runs the sim and must produce a byte-identical garden
+  and the same voice order. Four ways this breaks, all of which have already
+  happened once:
 
-  1. `Math.random()` anywhere in a growth rule. All randomness comes from
-     `Garden.rng` (mulberry32) and is consumed in a fixed order per step.
+  1. `Math.random()` anywhere in a growth rule. All growth randomness comes from
+     `Garden.rng` (mulberry32) and is consumed in a fixed order per step. Audio
+     may use `Math.random` freely — it is not the sim.
   2. Reading mutable session state from inside a rule. The lattice bug read
      `this.colonies.length`, which changes as the session goes on, so the same
      cell behaved differently on replay than it did live. **A rule may read the
      grid and its own colony record. Nothing else.**
   3. Wall-clock time entering the sim. Timers are wall-clock; the simulation is
      not. Growth rules never see `performance.now()`.
+  4. **Mixing the two RNG streams.** `Garden` has both, and the distinction is
+     the whole reason replay works:
+
+     - `rng` — growth rules and `plant()` cluster shape. **The simulation.**
+     - `pick` — session decisions: where `openSpot` lands, which species a pool
+       yields. Things replay reads from the log instead of re-deciding.
+
+     They used to be one stream, which is why replay never matched the session
+     it recorded: live consumed ~80 draws per plant for `openSpot` plus one for
+     the species, replay consumed none, and growth was offset from the first
+     plant onward. **Anything a replay will not re-run must draw from `pick`.**
+     This is also what makes tap-to-place safe — a hand-aimed seed and a
+     generated one leave the growth stream in identical states.
 
   Any change to a growth rule invalidates every stored garden. Grid dimensions
-  live in the archive entry so at least the *shape* stays recoverable.
+  and step count live in the archive entry so the shape stays recoverable.
 
 - **Nothing is documented in the UI.** No legend, no species names on screen, no
   tooltips explaining what rot does. Discovery is the content. Copy stays terse
@@ -63,9 +78,19 @@ change makes the app more engaging but more interruptive, it is a regression.
 
 | Loop  | Default | Interaction |
 |-------|---------|-------------|
-| Micro | 90 sec  | One button lights up. Tap = plant a common species. Ignore = nothing. |
-| Meso  | 6 min   | Three buttons: Locked in / Drifted / Gone. Self-report, honor system. |
+| Micro | 90 sec  | One button lights up. Tap it = plant a common species anywhere; tap the *garden* = plant it exactly there. Ignore = nothing. |
+| Meso  | 6 min   | Three buttons: Locked in / Drifted / Gone. Self-report, honor system. Locked in then offers a choice of two seeds, shown grown rather than named. |
 | Macro | 30 min  | Bloom, then break: 5 min base + 1 min per Locked-in stretch, cap 5 bonus. |
+
+**Touching the garden.** A tap anywhere, at any time, answers with a ripple, a
+chime pitched by row and panned by column, and a short haptic. That is the whole
+of it: looking away from the essay for a second costs nothing and gives something
+back. It must stay this cheap — no counter, no escalation, nothing that could
+read as praise or turn the garden into a slot machine. The button always remains
+the no-aiming path, because someone mid-essay should never be made to aim.
+
+Ripples are render-layer only. They are not cells, never enter the seed log, and
+must never touch `Garden.rng`.
 
 All three run independently from session start. The user is not meant to track
 them — one glance at the ring set and the countdown is the whole interface.
@@ -88,9 +113,17 @@ that doubles growth rate for whatever grows on it; mycelium hunts across the fie
 for a foreign colony and mutates a disc of it into a random species on contact;
 mouth eats an expanding ring and leaves rich substrate behind.
 
-**The sim currently has almost no mortality**, which is why field test 1 produced
-one undifferentiated green maze. Rebalancing means adding death, not subtracting
-growth. See SPEC.md § Direction for the rebalance.
+Growth is bounded by the `TRAIT` table — a lifespan, an extent radius, and a
+standing cell cap per species — plus a global `POP_CAP`. **The colony cap is the
+load-bearing one.** Lifespan alone inverts the design: species that reproduce in
+place (crust, spire) renew themselves with young cells forever while movers and
+converters age out, so the dullest species crowd out the interesting ones. Tune
+the caps before reaching for anything else.
+
+Commons outnumber meso colonies four to one, because a macro brings ~20 micro
+taps and only ~5 meso answers. The caps compensate — a common is small and
+frequent, a meso colony is large and rare — so the families carry comparable
+weight on screen.
 
 ## Audio
 
