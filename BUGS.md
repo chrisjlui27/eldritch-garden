@@ -149,7 +149,7 @@ config survives reload, a session round-trips to the archive and its thumbnail
 regrows. A 14-plant session serialises to 922 bytes, so the 40-entry cap is far
 inside the localStorage budget.
 
-### 7.2 The app has no standalone shell · FIXED, SW UNVERIFIED
+### 7.2 The app has no standalone shell · FIXED
 
 No manifest, no service worker, no icons. It can only run as a page inside
 whatever chrome is hosting it — which in field test 1 meant a title bar and a
@@ -158,13 +158,22 @@ reply composer taking roughly 40% of a 2340 px screen.
 **Fixed:** manifest (fullscreen, portrait, three icons), service worker, and
 icons generated from the app's ring glyph.
 
-**Still unverified: that the service worker actually registers and caches.** The
-in-app browser pane blocks service worker registration — the request for `sw.js`
-never reaches the network — and the real-Chrome surface was not connected. The
-file parses and every `SHELL` entry resolves 200, but install, activate, and
-offline behaviour have not been exercised. First thing to check once the app is
-hosted: DevTools > Application > Service Workers, then reload with the network
-off.
+**Verified on the real origin.** Registers, activates, claims a scope of
+`https://chrisjlui27.github.io/eldritch-garden/`, and precaches all six `SHELL`
+entries. `localStorage` is available on that origin.
+
+During development this failed repeatedly against a local PowerShell
+`HttpListener` server: the request for `sw.js` never reached the server at all. I
+attributed that to the browser blocking service worker registration, which was
+wrong — the same browser registers it fine against GitHub Pages. The cause was
+something about the local test server's handling of that fetch, never diagnosed,
+and it does not matter now. Worth recording only so the next person does not
+repeat the misdiagnosis: **if a service worker will not register, suspect the
+server before the browser.**
+
+Still not exercised: actual offline behaviour with the radio off. The cache is
+populated, which is the substantive precondition, but a real flight-mode reload
+on the phone is the only honest test.
 
 ### 7.3 Grid dimensions are not recorded in the archive · OPEN
 
@@ -197,6 +206,8 @@ than broken. A replay-equality assertion in the archive path would catch it.
 ---
 
 ## 8. Status after the rebalance pass
+
+Live at <https://chrisjlui27.github.io/eldritch-garden/>.
 
 **§1 openSpot crash — FIXED.** `bestScore` initialises to `-Infinity` plus an
 unreachable fallback. Reproduced against the old code first (355 nulls in 400
@@ -257,7 +268,8 @@ thumbnail by about 32%. Now 44×65.
 - **Micro at 90 seconds** (§6, §7.4) — the core design question, still unmeasured.
 - **Wake lock** (§5) — never confirmed on a real 30-minute session.
 - **Break bonus** (§5) — arithmetic reads correct, unconfirmed in the field.
-- **Service worker** (§7.2) — parses, never observed installing.
+- **Offline with the radio off** — the service worker installs and precaches on
+  the live origin (§7.2), but a real flight-mode reload on the phone is untested.
 - **Multi-macro sessions** — the rebalance is tuned against one macro. A second
   bloom on an already-populated field is untested, and it is the likeliest place
   for this tuning to fall over.
