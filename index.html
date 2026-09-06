@@ -208,13 +208,73 @@ GONE_POOL.forEach(s=>CLASS_OF[s]='gone');
 const W=76,H=112,N=W*H;
 const DIRS=[[0,-1],[1,0],[0,1],[-1,0]];
 
+/* ---------- traits ----------
+   Field test 1 produced one undifferentiated green maze because nothing in the
+   sim ever died. Every rule added cells and almost none removed any, so the only
+   possible outcome was saturation. Three brakes, all of them derived from sim
+   state so replay is unaffected:
+
+     life  steps before a cell starts rolling to die. Death is probabilistic past
+           the threshold (DEATH_P), so a colony fades from its oldest cells
+           outward instead of vanishing all at once.
+     maxR  how far from its colony origin a species may place a cell. Wanderers
+           get room, blob species stay compact. Mycelium is exempt — hunting
+           across the whole field is the entire point of it.
+     cap   how many cells the colony may hold AT ONCE. This is the load-bearing
+           one. Lifespan alone inverts the design: species that reproduce in
+           place (crust, spire) renew themselves with young cells forever, while
+           movers and converters age out, so the dullest species crowd out the
+           interesting ones. A standing cap bounds every colony the same way and
+           lets cells turn over inside it, which is what makes a colony read as
+           one organism holding its shape rather than a spreading stain.
+
+   plus POP_CAP, a global ceiling below which growth simply stops.
+
+   A macro is roughly 1000 steps at one step per 1800 ms. Lifespans are set so a
+   colony planted early is still present at the bloom but visibly weathered —
+   25 plants at these caps come to about a third of the grid, comfortably under
+   POP_CAP, so the ceiling is a backstop and not the thing doing the shaping. */
+const TRAIT={};
+// A macro brings roughly 20 micro taps but only 5 meso answers, so commons
+// outnumber everything else four to one by colony. Caps compensate: a common is
+// small and there are many, a meso colony is large and there are few, and the
+// two families end up carrying comparable visual weight. The gone family is the
+// largest of all because the design promises it produces the wildest growth.
+TRAIT[SP.crust]   ={life:420,maxR:9, cap:85};
+TRAIT[SP.filament]={life:320,maxR:17,cap:95};
+TRAIT[SP.bead]    ={life:800,maxR:10,cap:85};
+TRAIT[SP.spire]   ={life:460,maxR:14,cap:185};
+TRAIT[SP.lattice] ={life:440,maxR:13,cap:180};
+TRAIT[SP.cistern] ={life:480,maxR:14,cap:185};
+TRAIT[SP.drifter] ={life:240,maxR:24,cap:130};
+TRAIT[SP.spore]   ={life:120,maxR:22,cap:110};
+TRAIT[SP.tendril] ={life:380,maxR:20,cap:175};
+TRAIT[SP.rot]     ={life:600,maxR:16,cap:300};
+TRAIT[SP.mouth]   ={life:99999,maxR:22,cap:99999};
+TRAIT[SP.mycelium]={life:1400,maxR:99999,cap:240};
+
+const DEATH_P=0.10;                 // per-step chance of dying once past `life`
+const POP_CAP=Math.round(N*0.40);   // growth stops here; death brings it back down
+const SUB_DECAY_EVERY=48;           // steps between richness sweeps
+
 class Garden{
   constructor(seed){
+    // Two streams, deliberately.
+    //   rng  — growth rules and plant() cluster shape. The simulation.
+    //   pick — session decisions: where openSpot lands, which species a pool
+    //          yields. Things a replay reads from the log instead of redeciding.
+    // They were one stream, which is why replay never matched the session it
+    // recorded: live consumed ~80 draws per plant for openSpot and one for the
+    // species, replay consumed none, and the growth stream was offset from the
+    // first plant onward. SPEC calls byte-identical replay the hard invariant;
+    // it could not hold while decisions and growth shared a stream.
     this.rng=mulberry32(seed);
+    this.pick=mulberry32((seed^0x9e3779b9)>>>0);
     this.sp=new Uint8Array(N);
     this.age=new Uint16Array(N);
     this.dir=new Uint8Array(N);
     this.sub=new Uint8Array(N);   // substrate richness 0..3
+    this.cid=new Uint16Array(N);  // colony id + 1; 0 means no colony
     this.next=new Uint8Array(N);
     this.colonies=[];
     this.step=0;
@@ -227,8 +287,11 @@ class Garden{
 
   plant(species,x,y){
     const cid=this.colonies.length;
-    this.colonies.push({species,ox:x,oy:y,r:1,alive:true,linked:false});
-    // small starting cluster, shape depends on species
+    this.colonies.push({species,ox:x,oy:y,r:1,alive:true,linked:false,id:cid,
+                        n:0,cap:(TRAIT[species]||{}).cap||120});
+    // small starting cluster, shape depends on species. Orthogonal steps, so the
+    // cluster straddles both (x+y) parities — which is what makes the lattice
+    // parity rule below actually bite.
     const cells=[[0,0]];
     const n=2+Math.floor(this.rng()*4);
     for(let i=0;i<n;i++){
@@ -240,7 +303,9 @@ class Garden{
       const nx=x+dx,ny=y+dy;
       if(!this.inb(nx,ny))continue;
       const i=this.idx(nx,ny);
-      this.sp[i]=species;this.age[i]=0;this.dir[i]=Math.floor(this.rng()*4);
+      if(!this.sp[i])this.living++;
+      this.sp[i]=species;this.age[i]=0;this.dir[i]=Math.floor(this.rng()*4);this.cid[i]=cid+1;
+      this.colonies[cid].n++;
     }
     return cid;
   }
@@ -249,42 +314,80 @@ class Garden{
     // find a location with breathing room
     let best=null,bestScore=-Infinity;
     for(let t=0;t<40;t++){
-      const x=3+Math.floor(this.rng()*(W-6));
-      const y=3+Math.floor(this.rng()*(H-6));
+      const x=3+Math.floor(this.pick()*(W-6));
+      const y=3+Math.floor(this.pick()*(H-6));
       let occ=0;
       for(let dy=-5;dy<=5;dy+=2)for(let dx=-5;dx<=5;dx+=2){
         const nx=x+dx,ny=y+dy;
         if(this.inb(nx,ny)&&this.sp[this.idx(nx,ny)])occ++;
       }
-      const score=-occ+this.rng()*2;
+      const score=-occ+this.pick()*2;
       if(score>bestScore){bestScore=score;best=[x,y]}
     }
     // -Infinity guarantees the first candidate wins, so this fallback should be
     // unreachable. It consumes no rng() unless it fires, so it cannot shift the
     // stream and break replay. Belt and braces around the one crash that ate a
     // whole field test.
-    if(!best)best=[1+Math.floor(this.rng()*(W-2)),1+Math.floor(this.rng()*(H-2))];
+    if(!best)best=[1+Math.floor(this.pick()*(W-2)),1+Math.floor(this.pick()*(H-2))];
     return best;
   }
 
   advance(){
-    const {sp,age,dir,sub,rng}=this;
+    const {sp,age,dir,sub,cid,rng}=this;
     const nx0=this.next;nx0.set(sp);
-    const put=(x,y,s)=>{if(this.inb(x,y)){const i=this.idx(x,y);if(!nx0[i]){nx0[i]=s;this.age[i]=0;this.dir[i]=Math.floor(rng()*4)}}};
-    const kill=(x,y,rich)=>{const i=this.idx(x,y);nx0[i]=EMPTY;sub[i]=Math.max(sub[i],rich)};
+    let live=this.living;
+
+    // put() is the only way a growth rule may create a cell, so every brake lives
+    // in one place: the global ceiling, the per-species extent cap, and colony
+    // inheritance. `c` is the parent's colony id (1-based) and children inherit
+    // it — that is what makes per-colony behaviour possible at all.
+    const put=(x,y,s,c)=>{
+      if(live>=POP_CAP)return false;
+      if(!this.inb(x,y))return false;
+      const i=this.idx(x,y);
+      if(nx0[i])return false;
+      let col=null;
+      if(c){
+        col=this.colonies[c-1];
+        const t=TRAIT[s];
+        if(col){
+          if(col.n>=col.cap)return false;           // standing size cap
+          if(t){
+            const ddx=x-col.ox,ddy=y-col.oy;
+            if(ddx*ddx+ddy*ddy>t.maxR*t.maxR)return false;
+          }
+        }
+      }
+      nx0[i]=s;age[i]=0;dir[i]=Math.floor(rng()*4);cid[i]=c||0;
+      if(col)col.n++;
+      live++;
+      return true;
+    };
+    const kill=(x,y,rich)=>{
+      const i=this.idx(x,y);
+      if(nx0[i]){live--;const c=cid[i];if(c&&this.colonies[c-1])this.colonies[c-1].n--}
+      nx0[i]=EMPTY;sub[i]=Math.max(sub[i],rich);cid[i]=0;
+    };
 
     for(let y=0;y<H;y++)for(let x=0;x<W;x++){
       const i=this.idx(x,y);const s=sp[i];
       if(!s)continue;
+      if(!nx0[i])continue;          // already eaten or converted earlier this step
       age[i]++;
-      const boost=sub[i]?2:1;
+      const t=TRAIT[s];
+      // mortality — the brake the sim was missing entirely
+      if(t&&age[i]>=t.life&&rng()<DEATH_P){kill(x,y,1);continue}
+      // only rich substrate doubles growth, so ordinary death darkens the ground
+      // without turning the whole field into a growth accelerator
+      const boost=sub[i]>=2?2:1;
+      const me=cid[i];
 
       switch(s){
         case SP.crust:{
-          if(this.ring8(x,y)>=6){kill(x,y,1);break}
-          if(rng()<0.16*boost){
+          if(this.ring8(x,y)>=5){kill(x,y,1);break}
+          if(rng()<0.085*boost){
             const[dx,dy]=DIRS[Math.floor(rng()*4)];
-            put(x+dx,y+dy,SP.crust);
+            put(x+dx,y+dy,SP.crust,me);
           }
           break;
         }
@@ -294,7 +397,12 @@ class Garden{
             const tx=x+dx,ty=y+dy;
             if(this.inb(tx,ty)&&!sp[this.idx(tx,ty)]){
               const j=this.idx(tx,ty);
-              if(!nx0[j]){nx0[j]=SP.filament;age[j]=0;dir[j]=dir[i];nx0[i]=SP.bead}
+              if(!nx0[j]&&put(tx,ty,SP.filament,me)){
+                dir[j]=dir[i];
+                // the tail is no longer free: half the time it just dies
+                if(rng()<0.5){nx0[i]=SP.bead;age[i]=0}
+                else kill(x,y,1);
+              }
             } else {
               dir[i]=(dir[i]+(rng()<0.5?1:3))%4;
             }
@@ -302,22 +410,33 @@ class Garden{
           break;
         }
         case SP.bead:{
-          if(rng()<0.008*boost){const[dx,dy]=DIRS[Math.floor(rng()*4)];put(x+dx,y+dy,SP.crust)}
+          // bead is the ochre residue a filament leaves behind. At 0.004 it turned
+          // its own trail into crust within a macro and the trail read green. Even 0.0015
+          // converted a whole filament colony, so it is near-inert now: bead is
+          // residue and filler, not a seeder.
+          if(rng()<0.0006*boost){const[dx,dy]=DIRS[Math.floor(rng()*4)];put(x+dx,y+dy,SP.crust,me)}
           break;
         }
         case SP.spire:{
           const up=y-1;
-          if(this.inb(x,up)&&!sp[this.idx(x,up)]&&rng()<0.5*boost){put(x,up,SP.spire)}
+          if(this.inb(x,up)&&!sp[this.idx(x,up)]&&rng()<0.5*boost){put(x,up,SP.spire,me)}
           else if(rng()<0.08){
-            const[dx,dy]=DIRS[Math.floor(rng()*4)];put(x+dx,y+dy,SP.spire);
+            const[dx,dy]=DIRS[Math.floor(rng()*4)];put(x+dx,y+dy,SP.spire,me);
           }
           break;
         }
         case SP.lattice:{
-          if(rng()<0.25*boost){
+          // Parity comes from the colony's own id, which never changes. The old
+          // rule read this.colonies.length — session state that grows as you
+          // plant — so the same cell evaluated differently live than on replay,
+          // and `|| true` hid it by short-circuiting the whole test.
+          // Diagonal moves preserve (x+y) parity, so checking the cell's own
+          // parity would be a tautology; it is the colony's parity that confines
+          // a mixed-parity seed cluster to one sublattice and halves its spread.
+          if(rng()<0.16*boost){
             const d=[[1,1],[-1,1],[1,-1],[-1,-1]][Math.floor(rng()*4)];
             const tx=x+d[0],ty=y+d[1];
-            if(((tx+ty)&1)===((this.colonies.length)&1)||true){put(tx,ty,SP.lattice)}
+            if(me&&((tx+ty)&1)===((me-1)&1))put(tx,ty,SP.lattice,me);
           }
           break;
         }
@@ -325,7 +444,7 @@ class Garden{
           if(this.neighbours(x,y)<=2&&rng()<0.3*boost){
             const[dx,dy]=DIRS[Math.floor(rng()*4)];
             const tx=x+dx,ty=y+dy;
-            if(this.inb(tx,ty)&&this.neighbours(tx,ty)<=2)put(tx,ty,SP.cistern);
+            if(this.inb(tx,ty)&&this.neighbours(tx,ty)<=2)put(tx,ty,SP.cistern,me);
           }
           break;
         }
@@ -336,7 +455,20 @@ class Garden{
             const tx=x+dx,ty=y+dy;
             if(this.inb(tx,ty)&&!sp[this.idx(tx,ty)]){
               const j=this.idx(tx,ty);
-              if(!nx0[j]){nx0[j]=SP.drifter;dir[j]=dir[i];age[j]=0;nx0[i]=EMPTY;sub[i]=Math.max(sub[i],1)}
+              if(!nx0[j]&&put(tx,ty,SP.drifter,me)){
+                dir[j]=dir[i];
+                if(rng()<0.06){
+                  // Occasionally it splits rather than translating. A drifter that
+                  // only ever moved stayed five pixels wide and vanished at its
+                  // lifespan — no visible reward at all for a Drifted answer.
+                  // Growth is still bounded by the colony cap, same as everything.
+                  age[j]=0;
+                } else {
+                  // it moved: carry the age or it renews itself forever
+                  age[j]=age[i];
+                  kill(x,y,1);
+                }
+              }
             } else dir[i]=(dir[i]+2)%4;
           }
           break;
@@ -345,9 +477,9 @@ class Garden{
           const p=0.09/(1+age[i]/22);
           if(rng()<p){
             const r=4+rng()*13,a=rng()*Math.PI*2;
-            put(Math.round(x+Math.cos(a)*r),Math.round(y+Math.sin(a)*r),MICRO_POOL[Math.floor(rng()*3)]);
+            put(Math.round(x+Math.cos(a)*r),Math.round(y+Math.sin(a)*r),MICRO_POOL[Math.floor(rng()*3)],me);
           }
-          if(age[i]>46)nx0[i]=SP.bead;
+          if(age[i]>46){nx0[i]=SP.bead;age[i]=0}
           break;
         }
         case SP.tendril:{
@@ -360,7 +492,7 @@ class Garden{
               if(c>bc){bc=c;bd=d}
             }
             const[dx,dy]=DIRS[bd];
-            put(x+dx,y+dy,SP.tendril);
+            put(x+dx,y+dy,SP.tendril,me);
           }
           break;
         }
@@ -371,13 +503,27 @@ class Garden{
           if(opts.length){
             const[tx,ty]=opts[Math.floor(rng()*opts.length)];
             const j=this.idx(tx,ty);
-            nx0[j]=rng()<0.55?SP.rot:EMPTY;
-            sub[j]=3;
+            // rot consumes a neighbouring colony and leaves rich substrate. It
+            // ignores POP_CAP because it never grows the population — it converts.
+            if(rng()<0.55){
+              if(!nx0[j])live++;
+              const was=cid[j];
+              if(was&&this.colonies[was-1])this.colonies[was-1].n--;
+              nx0[j]=SP.rot;age[j]=0;cid[j]=me;sub[j]=3;
+              if(me&&this.colonies[me-1])this.colonies[me-1].n++;
+            } else kill(tx,ty,3);
           } else if(rng()<0.03){kill(x,y,3)}
           break;
         }
         case SP.mouth:{
-          break; // handled at colony level
+          // BUGS.md 6 — a dead mouth colony used to leave its cells as permanent
+          // static red. They rot down now and leave behind the rich substrate
+          // they earned.
+          const col=me?this.colonies[me-1]:null;
+          // slow: a mouth that has finished eating should leave a visible arc of
+          // remains for the rest of the session, not evaporate within a macro
+          if(col&&!col.alive&&rng()<0.015)kill(x,y,3);
+          break;
         }
         case SP.mycelium:{
           break; // handled at colony level
@@ -397,10 +543,13 @@ class Garden{
           const tx=c.ox+dx,ty=c.oy+dy;
           if(!this.inb(tx,ty))continue;
           const j=this.idx(tx,ty);
-          if(nx0[j]&&nx0[j]!==SP.mouth){nx0[j]=EMPTY;sub[j]=3}
-          else if(!nx0[j]&&rng()<0.5){nx0[j]=SP.mouth;sub[j]=3}
+          if(nx0[j]&&nx0[j]!==SP.mouth){
+            const was=cid[j];if(was&&this.colonies[was-1])this.colonies[was-1].n--;
+            nx0[j]=EMPTY;sub[j]=3;cid[j]=0;live--;
+          }
+          else if(!nx0[j]&&live<POP_CAP&&rng()<0.5){nx0[j]=SP.mouth;sub[j]=3;cid[j]=c.id+1;age[j]=0;live++;c.n++}
         }
-        if(c.r>26)c.alive=false;
+        if(c.r>TRAIT[SP.mouth].maxR)c.alive=false;
       }
       if(c.species===SP.mycelium&&!c.linked){
         // creep toward nearest foreign living cell
@@ -426,10 +575,14 @@ class Garden{
                 const mx=nxp+ddx,my=nyp+ddy;
                 if(!this.inb(mx,my))continue;
                 const k=this.idx(mx,my);
-                if(nx0[k])nx0[k]=mutant;
+                // the cells keep their original colony — they were mutated, not
+                // replaced — but reset age so the mutation reads as new growth
+                if(nx0[k]){nx0[k]=mutant;age[k]=0}
               }
+            } else if(!nx0[j]){
+              nx0[j]=SP.mycelium;cid[j]=c.id+1;age[j]=0;live++;
+              c.ox=nxp;c.oy=nyp;
             } else {
-              nx0[j]=SP.mycelium;
               c.ox=nxp;c.oy=nyp;
             }
           }
@@ -438,8 +591,20 @@ class Garden{
     }
 
     sp.set(nx0);
-    let live=0;for(let i=0;i<N;i++)if(sp[i])live++;
-    this.living=live;
+    // Recount exactly rather than trusting the incremental tallies. Colony counts
+    // gate all growth, so drift here would silently change the sim.
+    const cnt=new Uint16Array(this.colonies.length);
+    let n=0;
+    for(let i=0;i<N;i++){
+      if(sp[i]){n++;const c=cid[i];if(c&&c<=cnt.length)cnt[c-1]++}
+      else cid[i]=0;
+    }
+    for(let k=0;k<this.colonies.length;k++)this.colonies[k].n=cnt[k];
+    this.living=n;
+    // Rich substrate fades back to a permanent scar, so rot's doubling is a
+    // windfall rather than a permanent change to the ground. sub never reaches 0
+    // again: the field keeps its history.
+    if(this.step%SUB_DECAY_EVERY===0){for(let i=0;i<N;i++)if(sub[i]>1)sub[i]--}
     this.step++;
   }
 }
@@ -588,6 +753,24 @@ const Audio_={
   }
 };
 
+/* ---------- pacing ----------
+   Work advances one step per WORK_STEP_MS, so a 30-minute macro is about 1000
+   steps and that is the yardstick every lifespan in TRAIT is set against.
+
+   The old bloom ran 7 steps per animation frame for 9 seconds — roughly 3800
+   steps, nearly four times the entire work period, and frame-rate dependent, so
+   a fast phone and a slow one ended on different gardens. The break ran another
+   1500. The garden was evolving mostly while nobody was working, which is
+   backwards: it is supposed to be fed by attention.
+
+   BLOOM_STEPS is now a fixed budget spread across BLOOM_MS by elapsed fraction,
+   so the bloom lands on the same garden regardless of frame rate, and the break
+   is a slow simmer rather than a second growth phase. */
+const WORK_STEP_MS=1800;
+const BREAK_STEP_MS=1400;
+const BLOOM_MS=22000;      // BUGS.md 6: 9 s read as a blip for a half-hour payoff
+const BLOOM_STEPS=320;
+
 /* ---------- session state ---------- */
 const cfg={micro:90,meso:6,macro:30,brk:5};
 let S=null;
@@ -652,15 +835,21 @@ function tick(){
       enterBloom();
     }
     // slow ambient growth
-    if(!S._lastStep||t-S._lastStep>1800){S._lastStep=t;g.advance();paint(g,off,octx,img)}
+    if(!S._lastStep||t-S._lastStep>WORK_STEP_MS){S._lastStep=t;g.advance();paint(g,off,octx,img)}
   }
-  else if(S.mode==='bloom'){
-    for(let k=0;k<7;k++)g.advance();
+  else if(S.mode==="bloom"){
+    // Advance toward a fixed budget by elapsed fraction, not per frame, so the
+    // bloom ends on the same garden on any phone. The inner cap keeps a long
+    // frame from stalling the paint.
+    const frac=Math.min(1,1-(S.bloomUntil-t)/BLOOM_MS);
+    const want=Math.round(frac*BLOOM_STEPS);
+    let guard=0;
+    while(S._bloomDone<want&&guard<24){g.advance();S._bloomDone++;guard++}
     paint(g,off,octx,img);
     if(t>S.bloomUntil)enterBreak();
   }
   else if(S.mode==='break'){
-    if(!S._lastStep||t-S._lastStep>380){S._lastStep=t;g.advance();paint(g,off,octx,img)}
+    if(!S._lastStep||t-S._lastStep>BREAK_STEP_MS){S._lastStep=t;g.advance();paint(g,off,octx,img)}
     if(t>=S.breakEnds)resumeWork();
   }
   else if(S.mode==='replay'){
@@ -702,9 +891,11 @@ function updateBand(t){
 /* ---------- phases ---------- */
 function enterBloom(){
   S.mode='bloom';
-  S.bloomUntil=now()+9000;
+  S.bloomUntil=now()+BLOOM_MS;
+  S._bloomDone=0;
   S.pendingMicro=false;S.pendingMeso=false;
-  Audio_.setOpen(true,3.5);
+  // the sweep is supposed to happen *over* the bloom, so it tracks the duration
+  Audio_.setOpen(true,BLOOM_MS/1000*0.7);
   renderAct();
 }
 function enterBreak(){
@@ -767,7 +958,7 @@ function renderAct(){
   b.onclick=()=>{
     if(!S.pendingMicro)return;
     S.pendingMicro=false;S.tally.micro++;
-    plantSeed(MICRO_POOL[Math.floor(S.garden.rng()*3)],'micro');
+    plantSeed(MICRO_POOL[Math.floor(S.garden.pick()*3)],"micro");
     renderAct();
   };
   act.appendChild(b);
@@ -778,7 +969,7 @@ function mk(parent,label,fn){const b=document.createElement('button');b.classNam
 function answerMeso(kind){
   const pool=kind==='locked'?LOCKED_POOL:kind==='drift'?DRIFT_POOL:GONE_POOL;
   S.tally[kind]++;
-  plantSeed(pool[Math.floor(S.garden.rng()*3)],kind);
+  plantSeed(pool[Math.floor(S.garden.pick()*3)],kind);
   S.pendingMeso=false;
   S.microAt=now();
   renderAct();
@@ -874,6 +1065,8 @@ async function endSession(){
     seed:S.seed,
     w:W,h:H,          // see BUGS.md 7.3 - without these, any grid change
                       // silently invalidates this entry with no way to detect it
+    steps:S.garden.step,  // replay has to reach the same step count or it is a
+                          // different garden. regrow used a hardcoded 900.
     log:S.log,
     tally:S.tally,
     cycles:S.cycles,
@@ -915,7 +1108,7 @@ document.getElementById('toArchive').onclick=async()=>{
     row.appendChild(b);
     holder.appendChild(row);
     // thumbnail: fast-forward silently
-    const gg=regrow(e,900);
+    const gg=regrow(e);
     const tc=c.getContext('2d');const ti=tc.createImageData(W,H);
     paint(gg,c,tc,ti);
   }
@@ -923,16 +1116,20 @@ document.getElementById('toArchive').onclick=async()=>{
 };
 document.getElementById('closeArchive').onclick=()=>archive.classList.remove('on');
 
+/* Replays a stored session. The step count is the entry's own — a live session
+   runs a few thousand steps and the old hardcoded 900 meant an archived garden
+   never resembled the one that was on screen. Entries saved before `steps`
+   existed fall back to 900 and remain as approximate as they always were. */
 function regrow(entry,steps){
   const g=new Garden(entry.seed);
   const log=[...entry.log].sort((a,b)=>a.step-b.step);
+  const total=steps||entry.steps||900;
   let li=0;
-  for(let s=0;s<steps;s++){
+  for(let s=0;s<total;s++){
     while(li<log.length&&log[li].step<=s){g.plant(log[li].species,log[li].x,log[li].y);li++}
     g.advance();
   }
   while(li<log.length){g.plant(log[li].species,log[li].x,log[li].y);li++}
-  for(let s=0;s<120;s++)g.advance();
   return g;
 }
 
@@ -944,7 +1141,7 @@ function startReplay(entry){
   Audio_.clear();
   S=newSession(entry.seed);
   S.mode='replay';
-  replayState={log:[...entry.log].sort((a,b)=>a.step-b.step),i:0,step:0,total:2200};
+  replayState={log:[...entry.log].sort((a,b)=>a.step-b.step),i:0,step:0,total:entry.steps||2200};
   document.getElementById('veil').classList.add('gone');
   Audio_.setOpen(true,2);
   act.innerHTML='';
