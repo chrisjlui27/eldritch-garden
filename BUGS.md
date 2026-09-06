@@ -131,7 +131,7 @@ before. Grid dimensions must be recorded per archive entry either way (see §7.3
 Not observable in field test 1 — either masked by the host environment or only
 visible in the source.
 
-### 7.1 `window.storage` does not exist outside the artifact host · OPEN
+### 7.1 `window.storage` does not exist outside the artifact host · FIXED
 
 Every persistence path — `saveCfg`, `loadCfg`, `getArchive`, `endSession` — calls
 `window.storage`, an artifact-hosted key/value API. Off-host it is `undefined`,
@@ -139,15 +139,32 @@ the `try/catch` swallows the throw, and the app runs looking healthy while savin
 nothing. Config resets every launch and the archive is permanently empty.
 
 This is not a bug in the artifact; it is the single largest blocker to the app
-existing anywhere else. **Fix:** a `Store` adapter over `localStorage` with the
-same async shape, per CLAUDE.md.
+existing anywhere else.
 
-### 7.2 The app has no standalone shell · OPEN
+**Fixed:** a `Store` adapter over `localStorage`, async so a phase-2 APK swaps
+three method bodies and nothing else. `putArchive` degrades on quota by dropping
+oldest entries rather than losing the newest, and `endSession` now shows "not
+saved" when nothing was saved instead of claiming success. Verified over HTTP:
+config survives reload, a session round-trips to the archive and its thumbnail
+regrows. A 14-plant session serialises to 922 bytes, so the 40-entry cap is far
+inside the localStorage budget.
+
+### 7.2 The app has no standalone shell · FIXED, SW UNVERIFIED
 
 No manifest, no service worker, no icons. It can only run as a page inside
 whatever chrome is hosting it — which in field test 1 meant a title bar and a
-reply composer taking roughly 40% of a 2340 px screen. **Fix:** phase-1 PWA per
-SPEC.md § Platform target.
+reply composer taking roughly 40% of a 2340 px screen.
+
+**Fixed:** manifest (fullscreen, portrait, three icons), service worker, and
+icons generated from the app's ring glyph.
+
+**Still unverified: that the service worker actually registers and caches.** The
+in-app browser pane blocks service worker registration — the request for `sw.js`
+never reaches the network — and the real-Chrome surface was not connected. The
+file parses and every `SHELL` entry resolves 200, but install, activate, and
+offline behaviour have not been exercised. First thing to check once the app is
+hosted: DevTools > Application > Service Workers, then reload with the network
+off.
 
 ### 7.3 Grid dimensions are not recorded in the archive · OPEN
 

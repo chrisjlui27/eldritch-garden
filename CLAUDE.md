@@ -108,6 +108,34 @@ Confirmed working on Android. Voices accumulate for the life of a session and ar
 never pruned; if a long multi-macro session ever runs out of headroom, that is a
 mixing problem to solve, not a reason to cap the garden.
 
+## Files
+
+```
+index.html              the entire application
+manifest.webmanifest    name, icons, fullscreen, portrait lock
+sw.js                   offline cache
+icon-*.png              generated, see below
+```
+
+`icon-192`, `icon-512` and `icon-maskable-512` are rendered from the app's own
+ring glyph. There is no image toolchain in this project and there should not be
+one; regenerate them with the GDI+ script in the commit that added them. The
+maskable variant is drawn at 0.78 scale to stay inside Android's 80% safe zone.
+
+**Bump `CACHE` in `sw.js` whenever `index.html` changes.** The browser re-fetches
+`sw.js` on navigation, sees the new constant, and drops the old cache. Forget and
+users keep running the previous build. Navigations are network-first so an online
+phone gets the new version immediately; the cache is the offline fallback, not
+the primary source.
+
+## Shipping it
+
+A service worker needs a secure context, so `file://` gets no offline support and
+no install prompt — the app still runs, it just cannot become an app. Serve the
+folder over HTTPS once (GitHub Pages off this repo is the least work), open it in
+Android Chrome, and use Add to home screen. After that it is installed and works
+with the radio off.
+
 ## Working style
 
 Field-test changes on a phone before polishing them. The numbers that matter

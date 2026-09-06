@@ -1,5 +1,11 @@
+<meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <title>Eldritch Garden</title>
+<link rel="manifest" href="manifest.webmanifest">
+<meta name="theme-color" content="#14170f">
+<meta name="mobile-web-app-capable" content="yes">
+<link rel="icon" href="icon-192.png" sizes="192x192" type="image/png">
+<link rel="apple-touch-icon" href="icon-192.png">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,500;0,600;1,300&display=swap" rel="stylesheet">
@@ -818,13 +824,50 @@ function clamp(v,a,b){return Math.min(b,Math.max(a,v))}
 document.getElementById('toSettings').onclick=()=>{syncInputs();settings.classList.add('on')};
 document.getElementById('closeSettings').onclick=()=>{loadCfgFromInputs();settings.classList.remove('on')};
 
+/* ---------- storage ----------
+   The artifact host provided window.storage. Nothing else does — off-host it is
+   undefined, the try/catch swallowed the throw, and the app ran looking healthy
+   while saving nothing at all. See BUGS.md 7.1.
+
+   Everything here is async so a phase-2 APK swaps three method bodies for
+   Capacitor Preferences and changes nothing else. Every path must survive
+   storage being absent entirely — private mode, a blocked origin, a full disk —
+   without throwing and without claiming to have saved something it did not. */
+const Store={
+  ok:(()=>{try{localStorage.setItem('eg:probe','1');localStorage.removeItem('eg:probe');return true}
+           catch(e){return false}})(),
+  async get(k){try{return localStorage.getItem(k)}catch(e){return null}},
+  async set(k,v){try{localStorage.setItem(k,v);return true}catch(e){return false}},
+  async del(k){try{localStorage.removeItem(k);return true}catch(e){return false}}
+};
+
 /* ---------- archive ---------- */
-async function saveCfg(){try{await window.storage.set('eg:cfg',JSON.stringify(cfg))}catch(e){}}
-async function loadCfg(){try{const r=await window.storage.get('eg:cfg');if(r)Object.assign(cfg,JSON.parse(r.value))}catch(e){}syncInputs()}
+const ARCHIVE_MAX=40;
+
+async function saveCfg(){await Store.set('eg:cfg',JSON.stringify(cfg))}
+async function loadCfg(){
+  const r=await Store.get('eg:cfg');
+  if(r){try{Object.assign(cfg,JSON.parse(r))}catch(e){}}
+  syncInputs();
+}
 
 async function getArchive(){
-  try{const r=await window.storage.get('eg:archive');return r?JSON.parse(r.value):[]}catch(e){return[]}
+  const r=await Store.get('eg:archive');
+  if(!r)return[];
+  try{const l=JSON.parse(r);return Array.isArray(l)?l:[]}catch(e){return[]}
 }
+
+/* Quota is the one storage failure that must not pass quietly: it means a garden
+   somebody worked half an hour for did not survive. Drop the oldest entries and
+   retry rather than losing the newest one, and report honestly if even that
+   fails. Returns how many entries were kept, 0 for nothing. */
+async function putArchive(list){
+  for(let n=list.length;n>0;n--){
+    if(await Store.set('eg:archive',JSON.stringify(list.slice(0,n))))return n;
+  }
+  return 0;
+}
+
 async function endSession(){
   const entry={
     id:'g'+Date.now(),
@@ -837,17 +880,17 @@ async function endSession(){
     started:S.startedISO,
     minutes:Math.round((now()-S.t0)/60000)
   };
-  try{
-    const list=await getArchive();
-    list.unshift(entry);
-    await window.storage.set('eg:archive',JSON.stringify(list.slice(0,40)));
-  }catch(e){}
+  const list=await getArchive();
+  list.unshift(entry);
+  const kept=await putArchive(list.slice(0,ARCHIVE_MAX));
   Audio_.clear();
   S=null;
   document.getElementById('veil').classList.remove('gone');
   act.innerHTML='';
   document.getElementById('bigNum').textContent='—';
-  document.getElementById('subNum').textContent='saved';
+  // Never say "saved" when nothing was. The whole point of this pass is that the
+  // app stopped lying about persistence.
+  document.getElementById("subNum").textContent=kept?"saved":"not saved";
   octx.clearRect(0,0,W,H);
   const d=img.data;for(let i=0;i<N;i++){const o=i*4;d[o]=20;d[o+1]=23;d[o+2]=15;d[o+3]=255}
   octx.putImageData(img,0,0);
@@ -916,6 +959,14 @@ function replayStep(){
   }
   g.advance();r.step++;
   if(r.step>r.total&&r.i>=r.log.length){S.mode='break';S.breakEnds=now()+1;}
+}
+
+/* ---------- service worker ----------
+   Only registers in a secure context, so on file:// this is a silent no-op and
+   the app runs exactly as before minus offline and minus installability. The app
+   must never depend on it having succeeded. */
+if("serviceWorker" in navigator){
+  addEventListener("load",()=>{navigator.serviceWorker.register("sw.js").catch(()=>{})});
 }
 
 /* ---------- boot ---------- */
