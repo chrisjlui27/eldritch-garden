@@ -165,9 +165,10 @@ the primary source.
 
 A service worker needs a secure context, so `file://` gets no offline support and
 no install prompt — the app still runs, it just cannot become an app. Serve the
-folder over HTTPS once (GitHub Pages off this repo is the least work), open it in
-Android Chrome, and use Add to home screen. After that it is installed and works
-with the radio off.
+folder over HTTPS once, open it in Android Chrome, and use Add to home screen.
+After that it is installed and works with the radio off.
+
+See DEPLOY.md for the exact steps.
 
 ## Working style
 
