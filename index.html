@@ -633,6 +633,14 @@ function paint(g,target,tctx,timg){
   tctx.putImageData(timg,0,0);
 }
 
+/* The contain-fit transform, kept in one place because two things need it: the
+   blit that draws the grid, and the hit test that turns a thumb into a cell. If
+   they ever disagree, taps land somewhere other than where they look. */
+const view={sc:1,ox:0,oy:0};
+
+const ripples=[];
+const RIPPLE_MS=920;
+
 function blit(){
   const r=cv.getBoundingClientRect();
   const dpr=Math.min(devicePixelRatio||1,2);
@@ -647,8 +655,40 @@ function blit(){
   // against a real fullscreen stage.
   const sc=Math.min(cv.width/W,cv.height/H);
   const dw=W*sc,dh=H*sc;
-  ctx.drawImage(off,(cv.width-dw)/2,(cv.height-dh)/2,dw,dh);
+  view.sc=sc;view.ox=(cv.width-dw)/2;view.oy=(cv.height-dh)/2;
+  ctx.drawImage(off,view.ox,view.oy,dw,dh);
+  drawRipples();
 }
+
+/* Ripples live only in the render layer. They are not cells, they are not in the
+   seed log, and they never touch Garden.rng — a tap can never alter the garden
+   it lands on, or replay would stop matching. */
+function drawRipples(){
+  if(!ripples.length)return;
+  const t=performance.now();
+  for(let k=ripples.length-1;k>=0;k--){
+    const rp=ripples[k],age=t-rp.t0;
+    if(age>RIPPLE_MS){ripples.splice(k,1);continue}
+    const f=age/RIPPLE_MS, ease=1-Math.pow(1-f,2.4);
+    const cx=view.ox+(rp.gx+0.5)*view.sc, cy=view.oy+(rp.gy+0.5)*view.sc;
+    const rad=(1.5+ease*(rp.strong?30:19))*view.sc;
+    ctx.beginPath();ctx.arc(cx,cy,rad,0,Math.PI*2);
+    ctx.strokeStyle=(rp.strong?'rgba(201,176,114,':'rgba(122,143,92,')+((rp.strong?0.62:0.42)*(1-f)).toFixed(3)+')';
+    ctx.lineWidth=Math.max(1,(rp.strong?2.1:1.5)*view.sc*(1-f*0.7));
+    ctx.stroke();
+  }
+}
+
+/* Screen point to grid cell, inverting exactly what blit() just did. */
+function toGrid(clientX,clientY){
+  const r=cv.getBoundingClientRect();
+  if(!r.width||!r.height)return null;
+  const dpr=cv.width/r.width;
+  const gx=Math.floor((((clientX-r.left)*dpr)-view.ox)/view.sc);
+  const gy=Math.floor((((clientY-r.top)*dpr)-view.oy)/view.sc);
+  return (gx>=0&&gx<W&&gy>=0&&gy<H)?[gx,gy]:null;
+}
+
 
 /* ---------- audio ---------- */
 const Audio_={
@@ -675,6 +715,11 @@ const Audio_={
     this.bus.connect(this.filter);
     this.filter.connect(comp);
     this.filter.connect(rev);rev.connect(wet);wet.connect(comp);
+    // Taps bypass the work lowpass. The drone is meant to sit muffled under
+    // 340 Hz while you work; a tap is supposed to answer you, so it goes round
+    // the filter and into the reverb directly.
+    this.fx=ac.createGain();this.fx.gain.value=1;
+    this.fx.connect(comp);this.fx.connect(rev);
     comp.connect(this.master);this.master.connect(ac.destination);
     this.master.gain.linearRampToValueAtTime(0.0,ac.currentTime);
     this.master.gain.linearRampToValueAtTime(0.85,ac.currentTime+3);
@@ -727,6 +772,29 @@ const Audio_={
     g.gain.linearRampToValueAtTime(0.11,t+0.35);
     g.gain.linearRampToValueAtTime(0.055,t+2.4);
     this.voices.push({g,nodes,cls});
+  },
+  /* One struck tone, pitched by row and panned by column on the same
+     minor-pentatonic grid the drone voices use, so a tap is always in key with
+     whatever is already sounding. `strong` is a seed landing; the quiet form is
+     an idle touch. */
+  chime(x,y,strong){
+    if(!this.ac)return;
+    const ac=this.ac,t=ac.currentTime;
+    if(t-(this._lastChime||0)<0.11)return;   // a flurry of taps must not become noise
+    this._lastChime=t;
+    const deg=this.scale[Math.min(this.scale.length-1,Math.floor((1-y/H)*this.scale.length))];
+    const freq=55*Math.pow(2,deg/12)*4;
+    const g=ac.createGain();g.gain.value=0;
+    const pan=ac.createStereoPanner?ac.createStereoPanner():null;
+    if(pan){pan.pan.value=(x/W)*1.6-0.8;g.connect(pan);pan.connect(this.fx)}else g.connect(this.fx);
+    const o=ac.createOscillator();o.type="sine";o.frequency.value=freq;
+    const o2=ac.createOscillator();o2.type="sine";o2.frequency.value=freq*3.006;
+    const g2=ac.createGain();g2.gain.value=strong?0.26:0.13;
+    o2.connect(g2);g2.connect(g);o.connect(g);
+    const peak=strong?0.15:0.075,dur=strong?2.1:1.3;
+    g.gain.linearRampToValueAtTime(peak,t+0.012);
+    g.gain.exponentialRampToValueAtTime(0.0006,t+dur);
+    o.start(t);o2.start(t);o.stop(t+dur+0.4);o2.stop(t+dur+0.4);
   },
   setOpen(v,secs=2.5){
     if(!this.ac)return;
@@ -783,7 +851,7 @@ function newSession(seed){
     log:[],                       // {step,species,x,y,kind}
     t0:performance.now(),
     microAt:0,mesoAt:0,macroAt:0,
-    pendingMicro:false,pendingMeso:false,
+    pendingMicro:false,pendingMeso:false,pendingChoice:null,
     mode:'work',                  // work | bloom | break | paused
     resumeMode:'work',
     breakEnds:0,bloomUntil:0,
@@ -793,13 +861,77 @@ function newSession(seed){
   };
 }
 
-function plantSeed(species,kind){
+/* Every planted seed rings and ripples where it lands, whether you aimed it or
+   the app placed it for you. `at` is a hand-picked cell; without it openSpot
+   chooses. openSpot draws from `pick`, never `rng`, so an aimed seed and a
+   placed one leave the growth stream in exactly the same state — which is why
+   tapping a location cannot break replay. */
+function plantSeed(species,kind,at){
   const g=S.garden;
-  const [x,y]=g.openSpot();
+  const [x,y]=at||g.openSpot();
   g.plant(species,x,y);
   S.log.push({step:g.step,species,x,y,kind});
   Audio_.addVoice(species,x,y);
+  ripples.push({gx:x,gy:y,t0:performance.now(),strong:true});
+  Audio_.chime(x,y,true);
+  if(ripples.length>14)ripples.splice(0,ripples.length-14);
+  return [x,y];
 }
+
+/* ---------- touching the garden ----------
+   A tap always answers. Idle, it is a ripple and a chime pitched to where your
+   thumb landed: looking away from the essay for a second costs nothing and gives
+   something back, which is the whole of "hey, get back on track". When a micro
+   is waiting, the same tap is where the seed goes — the button still plants for
+   you if you would rather not aim, so the one-thumb-no-reading path survives. */
+let lastTap=0;
+function gardenTap(ev){
+  if(!S)return;
+  const p=toGrid(ev.clientX,ev.clientY);
+  if(!p)return;
+  ev.preventDefault();
+  const t=performance.now();
+  if(S.mode==='work'&&S.pendingMicro&&!S.pendingMeso&&!S.pendingChoice){
+    S.pendingMicro=false;S.tally.micro++;
+    plantSeed(MICRO_POOL[Math.floor(S.garden.pick()*3)],'micro',
+              [clamp(p[0],2,W-3),clamp(p[1],2,H-3)]);
+    renderAct();
+    lastTap=t;
+    return;
+  }
+  if(t-lastTap<150)return;
+  lastTap=t;
+  ripples.push({gx:p[0],gy:p[1],t0:t,strong:false});
+  if(ripples.length>14)ripples.splice(0,ripples.length-14);
+  Audio_.chime(p[0],p[1],false);
+}
+cv.addEventListener('pointerdown',gardenTap);
+
+/* A seed shown as itself rather than named: the species actually grown for a few
+   steps and cropped. Keeps the no-legend rule — you pick by look, and what the
+   thing does is still yours to discover. Its own Garden, so it cannot disturb
+   the session's streams. */
+function seedPreview(species,px){
+  const c=document.createElement('canvas');c.width=27;c.height=27;
+  const g=new Garden((0x5eed^(species*2654435761))>>>0);
+  g.plant(species,38,56);
+  for(let s=0;s<20;s++)g.advance();
+  const tc=c.getContext('2d'),im=tc.createImageData(27,27),d=im.data;
+  for(let yy=0;yy<27;yy++)for(let xx=0;xx<27;xx++){
+    const gx=25+xx,gy=43+yy,o=(yy*27+xx)*4;
+    let col=[20,23,15];
+    if(g.inb(gx,gy)){
+      const j=g.idx(gx,gy);
+      if(g.sp[j])col=COLOR[g.sp[j]];
+      else if(g.sub[j])col=[34,40,24];
+    }
+    d[o]=col[0];d[o+1]=col[1];d[o+2]=col[2];d[o+3]=255;
+  }
+  tc.putImageData(im,0,0);
+  c.style.cssText='width:'+px+'px;height:'+px+'px;image-rendering:pixelated;border-radius:2px';
+  return c;
+}
+
 
 /* ---------- timing ---------- */
 function now(){return performance.now()}
@@ -820,14 +952,14 @@ function tick(){
   if(S.mode==='work'){
     const microLen=cfg.micro*1000, mesoLen=cfg.meso*60000, macroLen=cfg.macro*60000;
     // micro
-    if(!S.pendingMeso){
+    if(!S.pendingMeso&&!S.pendingChoice){
       if(t-S.microAt>=microLen){
         if(S.pendingMicro){S.tally.missed++}
         S.pendingMicro=true;S.microAt=t;renderAct();
       }
     }
     // meso
-    if(t-S.mesoAt>=mesoLen&&!S.pendingMeso){
+    if(t-S.mesoAt>=mesoLen&&!S.pendingMeso&&!S.pendingChoice){
       S.pendingMeso=true;S.pendingMicro=false;S.mesoAt=t;renderAct();
     }
     // macro
@@ -942,6 +1074,19 @@ function renderAct(){
     return;
   }
   // work
+  if(S.pendingChoice){
+    const p=document.createElement("div");p.className="ask";p.textContent="pick one";
+    act.appendChild(p);
+    const row=document.createElement("div");row.id="triad";act.appendChild(row);
+    S.pendingChoice.forEach(spc=>{
+      const b=document.createElement("button");b.className="btn";
+      b.style.cssText="display:flex;align-items:center;justify-content:center;padding:13px 4px";
+      b.appendChild(seedPreview(spc,56));
+      b.onclick=()=>{S.pendingChoice=null;plantSeed(spc,"locked");renderAct()};
+      row.appendChild(b);
+    });
+    return;
+  }
   if(S.pendingMeso){
     const p=document.createElement('div');p.className='ask';p.textContent='the last stretch — honestly';
     act.appendChild(p);
@@ -966,12 +1111,22 @@ function renderAct(){
 function add(cls,label,fn){const b=document.createElement('button');b.className=cls;b.textContent=label;b.onclick=fn;act.appendChild(b);return b}
 function mk(parent,label,fn){const b=document.createElement('button');b.className='btn';b.textContent=label;b.onclick=fn;parent.appendChild(b);return b}
 
+/* SPEC v0.1 rejected a choice of two seeds as "redundant with the three-way
+   answer and a decision at the worst moment". It is here now, but only behind
+   Locked in — which is the one answer that means you had attention to spare.
+   Drifted and Gone still plant instantly, because someone who just admitted they
+   were gone is the last person who should be handed a decision. */
 function answerMeso(kind){
-  const pool=kind==='locked'?LOCKED_POOL:kind==='drift'?DRIFT_POOL:GONE_POOL;
   S.tally[kind]++;
-  plantSeed(pool[Math.floor(S.garden.pick()*3)],kind);
   S.pendingMeso=false;
   S.microAt=now();
+  if(kind==="locked"){
+    const a=Math.floor(S.garden.pick()*3);
+    let b=Math.floor(S.garden.pick()*2); if(b>=a)b++;
+    S.pendingChoice=[LOCKED_POOL[a],LOCKED_POOL[b]];
+  } else {
+    plantSeed((kind==="drift"?DRIFT_POOL:GONE_POOL)[Math.floor(S.garden.pick()*3)],kind);
+  }
   renderAct();
 }
 
