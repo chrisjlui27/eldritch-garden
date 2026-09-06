@@ -1,0 +1,918 @@
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Eldritch Garden</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,500;0,600;1,300&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --bog:#14170f;
+    --field:#1e2416;
+    --lichen:#7a8f5c;
+    --spore:#c9b072;
+    --rot:#8a4f6d;
+    --bone:#e6e2d3;
+    --dim:#6b7359;
+  }
+  *{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
+  html,body{height:100%}
+  body{
+    background:var(--bog);color:var(--bone);
+    font-family:"Cormorant Garamond",Georgia,serif;
+    font-weight:300;
+    overflow:hidden;
+    display:flex;justify-content:center;
+    touch-action:manipulation;
+  }
+  #app{
+    width:100%;max-width:520px;height:100dvh;
+    display:flex;flex-direction:column;
+    padding:env(safe-area-inset-top) 0 env(safe-area-inset-bottom);
+    position:relative;
+  }
+
+  /* ---------- top band ---------- */
+  #band{
+    height:64px;flex:0 0 auto;
+    display:flex;align-items:center;gap:14px;
+    padding:0 18px;
+  }
+  #rings{width:44px;height:44px;flex:0 0 auto}
+  #rings circle{fill:none;stroke-linecap:butt;transform:rotate(-90deg);transform-origin:50% 50%}
+  .track{stroke:#2a3020;stroke-width:2}
+  #bandtext{flex:1;line-height:1.15}
+  #bandtext .n{font-size:26px;font-weight:400;letter-spacing:.01em}
+  #bandtext .s{font-size:14px;color:var(--dim);font-style:italic}
+  #pause{
+    background:none;border:1px solid #2f3626;color:var(--dim);
+    font-family:inherit;font-size:15px;padding:7px 14px;border-radius:2px;
+    min-width:66px;
+  }
+  #pause:active{background:#20261a}
+
+  /* ---------- garden ---------- */
+  #stage{flex:1 1 auto;position:relative;min-height:0}
+  #garden{position:absolute;inset:0;width:100%;height:100%;display:block;image-rendering:pixelated}
+  #veil{
+    position:absolute;inset:0;display:flex;align-items:center;justify-content:center;
+    background:rgba(20,23,15,.86);text-align:center;padding:28px;
+    flex-direction:column;gap:20px;
+  }
+  #veil.gone{display:none}
+  #veil h1{font-size:clamp(38px,13vw,62px);font-weight:300;letter-spacing:.02em;line-height:.98}
+  #veil h1 em{display:block;font-style:italic;font-weight:300;color:var(--lichen)}
+  #veil p{font-size:17px;color:var(--dim);max-width:26ch;line-height:1.45;font-style:italic}
+
+  /* ---------- action zone ---------- */
+  #act{flex:0 0 auto;padding:12px 14px 18px;min-height:112px;display:flex;flex-direction:column;justify-content:flex-end;gap:10px}
+  .btn{
+    font-family:inherit;font-size:21px;font-weight:400;color:var(--bone);
+    background:var(--field);border:1px solid #313a25;border-radius:3px;
+    padding:20px 12px;width:100%;letter-spacing:.01em;
+  }
+  .btn:active{background:#28301c}
+  .btn.big{padding:26px 12px;font-size:24px}
+  .btn.quiet{background:none;border-color:#262d1c;color:var(--dim);font-size:17px;padding:14px}
+  .btn:disabled{opacity:.32}
+  #triad{display:flex;gap:8px}
+  #triad .btn{padding:22px 4px;font-size:19px}
+  #triad .btn:nth-child(1){border-color:#43512f}
+  #triad .btn:nth-child(2){border-color:#3d3550}
+  #triad .btn:nth-child(3){border-color:#4c2c3c}
+  .ask{font-size:16px;color:var(--dim);font-style:italic;text-align:center;padding-bottom:2px}
+  .waiting{
+    animation:breathe 2.6s ease-in-out infinite;
+  }
+  @keyframes breathe{0%,100%{border-color:#313a25}50%{border-color:var(--spore)}}
+  @media (prefers-reduced-motion:reduce){.waiting{animation:none;border-color:var(--spore)}}
+
+  /* ---------- sheets ---------- */
+  .sheet{
+    position:absolute;inset:0;background:var(--bog);z-index:20;
+    padding:26px 22px;overflow-y:auto;display:none;flex-direction:column;gap:22px;
+  }
+  .sheet.on{display:flex}
+  .sheet h2{font-size:32px;font-weight:300;font-style:italic;color:var(--lichen)}
+  .row{display:flex;align-items:baseline;justify-content:space-between;gap:14px;border-bottom:1px solid #232a1a;padding-bottom:12px}
+  .row label{font-size:19px}
+  .row .hint{font-size:14px;color:var(--dim);font-style:italic;display:block}
+  .row input{
+    width:92px;background:var(--field);border:1px solid #313a25;color:var(--bone);
+    font-family:inherit;font-size:22px;text-align:center;padding:9px;border-radius:2px;
+  }
+  .entry{border-bottom:1px solid #232a1a;padding:14px 0;display:flex;align-items:center;gap:14px}
+  .entry canvas{width:52px;height:52px;flex:0 0 auto;background:var(--field);image-rendering:pixelated;border-radius:2px}
+  .entry .meta{flex:1;line-height:1.3}
+  .entry .meta b{font-weight:400;font-size:19px;display:block}
+  .entry .meta span{font-size:14px;color:var(--dim);font-style:italic}
+  .entry button{
+    font-family:inherit;background:none;border:1px solid #313a25;color:var(--bone);
+    font-size:16px;padding:9px 15px;border-radius:2px;
+  }
+  .empty{color:var(--dim);font-style:italic;font-size:17px;line-height:1.5}
+</style>
+
+<div id="app">
+  <div id="band">
+    <svg id="rings" viewBox="0 0 44 44">
+      <circle class="track" cx="22" cy="22" r="20"></circle>
+      <circle class="track" cx="22" cy="22" r="14"></circle>
+      <circle class="track" cx="22" cy="22" r="8"></circle>
+      <circle id="rMacro" cx="22" cy="22" r="20" stroke="#c9b072" stroke-width="2"></circle>
+      <circle id="rMeso"  cx="22" cy="22" r="14" stroke="#7a8f5c" stroke-width="2"></circle>
+      <circle id="rMicro" cx="22" cy="22" r="8"  stroke="#8a9f6c" stroke-width="2"></circle>
+    </svg>
+    <div id="bandtext"><div class="n" id="bigNum">—</div><div class="s" id="subNum">not started</div></div>
+    <button id="pause">Pause</button>
+  </div>
+
+  <div id="stage">
+    <canvas id="garden"></canvas>
+    <div id="veil">
+      <h1>Eldritch<em>Garden</em></h1>
+      <p>Something grows while you work. It is not tame and it is not documented.</p>
+      <div style="display:flex;flex-direction:column;gap:9px;width:100%;max-width:300px">
+        <button class="btn big" id="begin">Begin</button>
+        <button class="btn quiet" id="toSettings">Timers</button>
+        <button class="btn quiet" id="toArchive">Past gardens</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="act"></div>
+
+  <div class="sheet" id="settings">
+    <h2>Timers</h2>
+    <div class="row"><div><label>Micro</label><span class="hint">one tap, one seed</span></div><input id="sMicro" type="number" min="15" max="600" step="5"><span>sec</span></div>
+    <div class="row"><div><label>Meso</label><span class="hint">how honest were you</span></div><input id="sMeso" type="number" min="1" max="60" step="1"><span>min</span></div>
+    <div class="row"><div><label>Macro</label><span class="hint">bloom, then break</span></div><input id="sMacro" type="number" min="5" max="180" step="5"><span>min</span></div>
+    <div class="row"><div><label>Break</label><span class="hint">plus a minute for each locked-in stretch</span></div><input id="sBreak" type="number" min="1" max="60" step="1"><span>min</span></div>
+    <button class="btn" id="closeSettings">Done</button>
+  </div>
+
+  <div class="sheet" id="archive">
+    <h2>Past gardens</h2>
+    <div id="archList"><div class="empty">Nothing has grown here yet.</div></div>
+    <button class="btn" id="closeArchive">Back</button>
+  </div>
+</div>
+
+<script>
+/* ============================================================
+   Eldritch Garden
+   Three timers, one sandbox, one drone.
+   ============================================================ */
+
+/* ---------- deterministic rng ---------- */
+function mulberry32(a){return function(){a|=0;a=a+0x6D2B79F5|0;let t=Math.imul(a^a>>>15,1|a);t=t+Math.imul(t^t>>>7,61|t)^t;return((t^t>>>14)>>>0)/4294967296}}
+
+/* ---------- species ---------- */
+const EMPTY=0;
+const SP={
+  crust:1, filament:2, bead:3,
+  spire:4, lattice:5, cistern:6,
+  drifter:7, spore:8, tendril:9,
+  rot:10, mouth:11, mycelium:12
+};
+const MICRO_POOL=[SP.crust,SP.filament,SP.bead];
+const LOCKED_POOL=[SP.spire,SP.lattice,SP.cistern];
+const DRIFT_POOL=[SP.drifter,SP.spore,SP.tendril];
+const GONE_POOL=[SP.rot,SP.mouth,SP.mycelium];
+
+const COLOR={};
+COLOR[SP.crust]=[0x6f,0x8a,0x52];
+COLOR[SP.filament]=[0x8f,0xa8,0x6a];
+COLOR[SP.bead]=[0xc9,0xb0,0x72];
+COLOR[SP.spire]=[0xa8,0xc0,0x8a];
+COLOR[SP.lattice]=[0xd8,0xe0,0xc0];
+COLOR[SP.cistern]=[0x7f,0xb0,0xa0];
+COLOR[SP.drifter]=[0xb0,0x8f,0xc0];
+COLOR[SP.spore]=[0xc9,0xa0,0xd0];
+COLOR[SP.tendril]=[0x9a,0x7f,0xb8];
+COLOR[SP.rot]=[0x8a,0x4f,0x6d];
+COLOR[SP.mouth]=[0xb0,0x40,0x5e];
+COLOR[SP.mycelium]=[0xd0,0x8a,0x9a];
+
+const CLASS_OF={};
+MICRO_POOL.forEach(s=>CLASS_OF[s]='micro');
+LOCKED_POOL.forEach(s=>CLASS_OF[s]='locked');
+DRIFT_POOL.forEach(s=>CLASS_OF[s]='drift');
+GONE_POOL.forEach(s=>CLASS_OF[s]='gone');
+
+/* ---------- grid ---------- */
+const W=76,H=112,N=W*H;
+const DIRS=[[0,-1],[1,0],[0,1],[-1,0]];
+
+class Garden{
+  constructor(seed){
+    this.rng=mulberry32(seed);
+    this.sp=new Uint8Array(N);
+    this.age=new Uint16Array(N);
+    this.dir=new Uint8Array(N);
+    this.sub=new Uint8Array(N);   // substrate richness 0..3
+    this.next=new Uint8Array(N);
+    this.colonies=[];
+    this.step=0;
+    this.living=0;
+  }
+  idx(x,y){return y*W+x}
+  inb(x,y){return x>=0&&x<W&&y>=0&&y<H}
+  neighbours(x,y){let c=0;for(const[dx,dy]of DIRS){const nx=x+dx,ny=y+dy;if(this.inb(nx,ny)&&this.sp[this.idx(nx,ny)])c++}return c}
+  ring8(x,y){let c=0;for(let dy=-1;dy<=1;dy++)for(let dx=-1;dx<=1;dx++){if(!dx&&!dy)continue;const nx=x+dx,ny=y+dy;if(this.inb(nx,ny)&&this.sp[this.idx(nx,ny)])c++}return c}
+
+  plant(species,x,y){
+    const cid=this.colonies.length;
+    this.colonies.push({species,ox:x,oy:y,r:1,alive:true,linked:false});
+    // small starting cluster, shape depends on species
+    const cells=[[0,0]];
+    const n=2+Math.floor(this.rng()*4);
+    for(let i=0;i<n;i++){
+      const [px,py]=cells[Math.floor(this.rng()*cells.length)];
+      const [dx,dy]=DIRS[Math.floor(this.rng()*4)];
+      cells.push([px+dx,py+dy]);
+    }
+    for(const[dx,dy]of cells){
+      const nx=x+dx,ny=y+dy;
+      if(!this.inb(nx,ny))continue;
+      const i=this.idx(nx,ny);
+      this.sp[i]=species;this.age[i]=0;this.dir[i]=Math.floor(this.rng()*4);
+    }
+    return cid;
+  }
+
+  openSpot(){
+    // find a location with breathing room
+    let best=null,bestScore=-1;
+    for(let t=0;t<40;t++){
+      const x=3+Math.floor(this.rng()*(W-6));
+      const y=3+Math.floor(this.rng()*(H-6));
+      let occ=0;
+      for(let dy=-5;dy<=5;dy+=2)for(let dx=-5;dx<=5;dx+=2){
+        const nx=x+dx,ny=y+dy;
+        if(this.inb(nx,ny)&&this.sp[this.idx(nx,ny)])occ++;
+      }
+      const score=-occ+this.rng()*2;
+      if(score>bestScore){bestScore=score;best=[x,y]}
+    }
+    return best;
+  }
+
+  advance(){
+    const {sp,age,dir,sub,rng}=this;
+    const nx0=this.next;nx0.set(sp);
+    const put=(x,y,s)=>{if(this.inb(x,y)){const i=this.idx(x,y);if(!nx0[i]){nx0[i]=s;this.age[i]=0;this.dir[i]=Math.floor(rng()*4)}}};
+    const kill=(x,y,rich)=>{const i=this.idx(x,y);nx0[i]=EMPTY;sub[i]=Math.max(sub[i],rich)};
+
+    for(let y=0;y<H;y++)for(let x=0;x<W;x++){
+      const i=this.idx(x,y);const s=sp[i];
+      if(!s)continue;
+      age[i]++;
+      const boost=sub[i]?2:1;
+
+      switch(s){
+        case SP.crust:{
+          if(this.ring8(x,y)>=6){kill(x,y,1);break}
+          if(rng()<0.16*boost){
+            const[dx,dy]=DIRS[Math.floor(rng()*4)];
+            put(x+dx,y+dy,SP.crust);
+          }
+          break;
+        }
+        case SP.filament:{
+          if(rng()<0.55){
+            const[dx,dy]=DIRS[dir[i]];
+            const tx=x+dx,ty=y+dy;
+            if(this.inb(tx,ty)&&!sp[this.idx(tx,ty)]){
+              const j=this.idx(tx,ty);
+              if(!nx0[j]){nx0[j]=SP.filament;age[j]=0;dir[j]=dir[i];nx0[i]=SP.bead}
+            } else {
+              dir[i]=(dir[i]+(rng()<0.5?1:3))%4;
+            }
+          }
+          break;
+        }
+        case SP.bead:{
+          if(rng()<0.008*boost){const[dx,dy]=DIRS[Math.floor(rng()*4)];put(x+dx,y+dy,SP.crust)}
+          break;
+        }
+        case SP.spire:{
+          const up=y-1;
+          if(this.inb(x,up)&&!sp[this.idx(x,up)]&&rng()<0.5*boost){put(x,up,SP.spire)}
+          else if(rng()<0.08){
+            const[dx,dy]=DIRS[Math.floor(rng()*4)];put(x+dx,y+dy,SP.spire);
+          }
+          break;
+        }
+        case SP.lattice:{
+          if(rng()<0.25*boost){
+            const d=[[1,1],[-1,1],[1,-1],[-1,-1]][Math.floor(rng()*4)];
+            const tx=x+d[0],ty=y+d[1];
+            if(((tx+ty)&1)===((this.colonies.length)&1)||true){put(tx,ty,SP.lattice)}
+          }
+          break;
+        }
+        case SP.cistern:{
+          if(this.neighbours(x,y)<=2&&rng()<0.3*boost){
+            const[dx,dy]=DIRS[Math.floor(rng()*4)];
+            const tx=x+dx,ty=y+dy;
+            if(this.inb(tx,ty)&&this.neighbours(tx,ty)<=2)put(tx,ty,SP.cistern);
+          }
+          break;
+        }
+        case SP.drifter:{
+          if(rng()<0.7){
+            if(rng()<0.18)dir[i]=Math.floor(rng()*4);
+            const[dx,dy]=DIRS[dir[i]];
+            const tx=x+dx,ty=y+dy;
+            if(this.inb(tx,ty)&&!sp[this.idx(tx,ty)]){
+              const j=this.idx(tx,ty);
+              if(!nx0[j]){nx0[j]=SP.drifter;dir[j]=dir[i];age[j]=0;nx0[i]=EMPTY;sub[i]=Math.max(sub[i],1)}
+            } else dir[i]=(dir[i]+2)%4;
+          }
+          break;
+        }
+        case SP.spore:{
+          const p=0.09/(1+age[i]/22);
+          if(rng()<p){
+            const r=4+rng()*13,a=rng()*Math.PI*2;
+            put(Math.round(x+Math.cos(a)*r),Math.round(y+Math.sin(a)*r),MICRO_POOL[Math.floor(rng()*3)]);
+          }
+          if(age[i]>46)nx0[i]=SP.bead;
+          break;
+        }
+        case SP.tendril:{
+          if(rng()<0.4*boost){
+            let bd=0,bc=-1;
+            for(let d=0;d<4;d++){
+              const[dx,dy]=DIRS[d];let c=0;
+              for(let k=3;k<=9;k+=3){const tx=x+dx*k,ty=y+dy*k;if(this.inb(tx,ty)&&sp[this.idx(tx,ty)])c++}
+              c+=rng()*0.9;
+              if(c>bc){bc=c;bd=d}
+            }
+            const[dx,dy]=DIRS[bd];
+            put(x+dx,y+dy,SP.tendril);
+          }
+          break;
+        }
+        case SP.rot:{
+          const opts=[];
+          for(const[dx,dy]of DIRS){const tx=x+dx,ty=y+dy;
+            if(this.inb(tx,ty)){const j=this.idx(tx,ty);if(sp[j]&&sp[j]!==SP.rot)opts.push([tx,ty])}}
+          if(opts.length){
+            const[tx,ty]=opts[Math.floor(rng()*opts.length)];
+            const j=this.idx(tx,ty);
+            nx0[j]=rng()<0.55?SP.rot:EMPTY;
+            sub[j]=3;
+          } else if(rng()<0.03){kill(x,y,3)}
+          break;
+        }
+        case SP.mouth:{
+          break; // handled at colony level
+        }
+        case SP.mycelium:{
+          break; // handled at colony level
+        }
+      }
+    }
+
+    // ---- colony-level behaviours ----
+    for(const c of this.colonies){
+      if(!c.alive)continue;
+      if(c.species===SP.mouth){
+        c.r+=0.34;
+        const r=c.r,rr=r*r,r0=(r-1.1)*(r-1.1);
+        for(let dy=-Math.ceil(r);dy<=Math.ceil(r);dy++)for(let dx=-Math.ceil(r);dx<=Math.ceil(r);dx++){
+          const d2=dx*dx+dy*dy;
+          if(d2>rr||d2<r0)continue;
+          const tx=c.ox+dx,ty=c.oy+dy;
+          if(!this.inb(tx,ty))continue;
+          const j=this.idx(tx,ty);
+          if(nx0[j]&&nx0[j]!==SP.mouth){nx0[j]=EMPTY;sub[j]=3}
+          else if(!nx0[j]&&rng()<0.5){nx0[j]=SP.mouth;sub[j]=3}
+        }
+        if(c.r>26)c.alive=false;
+      }
+      if(c.species===SP.mycelium&&!c.linked){
+        // creep toward nearest foreign living cell
+        let tx=-1,ty=-1,bd=1e9;
+        for(let t=0;t<220;t++){
+          const px=Math.floor(rng()*W),py=Math.floor(rng()*H);
+          const j=this.idx(px,py);
+          if(!sp[j]||sp[j]===SP.mycelium)continue;
+          const d=(px-c.ox)**2+(py-c.oy)**2;
+          if(d<bd){bd=d;tx=px;ty=py}
+        }
+        if(tx>=0){
+          const dx=Math.sign(tx-c.ox),dy=Math.sign(ty-c.oy);
+          const nxp=c.ox+(rng()<0.6?dx:0),nyp=c.oy+(rng()<0.6?dy:0);
+          if(this.inb(nxp,nyp)){
+            const j=this.idx(nxp,nyp);
+            if(nx0[j]&&nx0[j]!==SP.mycelium){
+              // contact — mutate the touched colony's neighbourhood
+              c.linked=true;
+              const mutant=[...MICRO_POOL,...LOCKED_POOL,...DRIFT_POOL,...GONE_POOL][Math.floor(rng()*12)];
+              for(let ddy=-7;ddy<=7;ddy++)for(let ddx=-7;ddx<=7;ddx++){
+                if(ddx*ddx+ddy*ddy>49)continue;
+                const mx=nxp+ddx,my=nyp+ddy;
+                if(!this.inb(mx,my))continue;
+                const k=this.idx(mx,my);
+                if(nx0[k])nx0[k]=mutant;
+              }
+            } else {
+              nx0[j]=SP.mycelium;
+              c.ox=nxp;c.oy=nyp;
+            }
+          }
+        }
+      }
+    }
+
+    sp.set(nx0);
+    let live=0;for(let i=0;i<N;i++)if(sp[i])live++;
+    this.living=live;
+    this.step++;
+  }
+}
+
+/* ---------- rendering ---------- */
+const cv=document.getElementById('garden');
+const ctx=cv.getContext('2d');
+const off=document.createElement('canvas');off.width=W;off.height=H;
+const octx=off.getContext('2d');
+const img=octx.createImageData(W,H);
+
+function paint(g,target,tctx,timg){
+  const d=timg.data;
+  for(let i=0;i<N;i++){
+    const s=g.sp[i];const o=i*4;
+    if(s){
+      const c=COLOR[s];
+      d[o]=c[0];d[o+1]=c[1];d[o+2]=c[2];d[o+3]=255;
+    } else if(g.sub[i]){
+      const t=g.sub[i];
+      d[o]=30+t*9;d[o+1]=36+t*7;d[o+2]=22+t*5;d[o+3]=255;
+    } else {
+      d[o]=20;d[o+1]=23;d[o+2]=15;d[o+3]=255;
+    }
+  }
+  tctx.putImageData(timg,0,0);
+}
+
+function blit(){
+  const r=cv.getBoundingClientRect();
+  const dpr=Math.min(devicePixelRatio||1,2);
+  if(cv.width!==Math.round(r.width*dpr)||cv.height!==Math.round(r.height*dpr)){
+    cv.width=Math.round(r.width*dpr);cv.height=Math.round(r.height*dpr);
+  }
+  ctx.imageSmoothingEnabled=false;
+  ctx.fillStyle='#14170f';ctx.fillRect(0,0,cv.width,cv.height);
+  // cover-fit the grid
+  const sc=Math.max(cv.width/W,cv.height/H);
+  const dw=W*sc,dh=H*sc;
+  ctx.drawImage(off,(cv.width-dw)/2,(cv.height-dh)/2,dw,dh);
+}
+
+/* ---------- audio ---------- */
+const Audio_={
+  ac:null,master:null,bus:null,filter:null,voices:[],pad:null,open:0,
+  init(){
+    if(this.ac)return;
+    const AC=window.AudioContext||window.webkitAudioContext;
+    this.ac=new AC();
+    const ac=this.ac;
+    this.master=ac.createGain();this.master.gain.value=0.0;
+    const comp=ac.createDynamicsCompressor();
+    comp.threshold.value=-18;comp.ratio.value=6;
+    this.filter=ac.createBiquadFilter();
+    this.filter.type='lowpass';this.filter.frequency.value=340;this.filter.Q.value=0.6;
+    // reverb
+    const rev=ac.createConvolver();
+    const len=ac.sampleRate*3.4;
+    const ib=ac.createBuffer(2,len,ac.sampleRate);
+    for(let ch=0;ch<2;ch++){const d=ib.getChannelData(ch);
+      for(let i=0;i<len;i++)d[i]=(Math.random()*2-1)*Math.pow(1-i/len,2.6)*0.5}
+    rev.buffer=ib;
+    const wet=ac.createGain();wet.gain.value=0.5;
+    this.bus=ac.createGain();
+    this.bus.connect(this.filter);
+    this.filter.connect(comp);
+    this.filter.connect(rev);rev.connect(wet);wet.connect(comp);
+    comp.connect(this.master);this.master.connect(ac.destination);
+    this.master.gain.linearRampToValueAtTime(0.0,ac.currentTime);
+    this.master.gain.linearRampToValueAtTime(0.85,ac.currentTime+3);
+    this.startPad();
+  },
+  startPad(){
+    const ac=this.ac;
+    this.pad=[];
+    [55,55.3,82.5,110.2].forEach((f,k)=>{
+      const o=ac.createOscillator();o.type=k%2?'sine':'triangle';o.frequency.value=f;
+      const g=ac.createGain();g.gain.value=0.06;
+      const lfo=ac.createOscillator();lfo.frequency.value=0.03+k*0.017;
+      const lg=ac.createGain();lg.gain.value=0.025;
+      lfo.connect(lg);lg.connect(g.gain);
+      o.connect(g);g.connect(this.bus);o.start();lfo.start();
+      this.pad.push({o,g});
+    });
+  },
+  scale:[0,3,5,7,10,12,15,17,19,22,24,27,29,31],
+  addVoice(species,x,y){
+    if(!this.ac)return;
+    const ac=this.ac,cls=CLASS_OF[species];
+    const deg=this.scale[Math.min(this.scale.length-1,Math.floor((1-y/H)*this.scale.length))];
+    const freq=55*Math.pow(2,deg/12);
+    const g=ac.createGain();g.gain.value=0;
+    const pan=ac.createStereoPanner?ac.createStereoPanner():null;
+    if(pan){pan.pan.value=(x/W)*1.6-0.8;g.connect(pan);pan.connect(this.bus)}else g.connect(this.bus);
+    const nodes=[];
+    if(cls==='gone'){
+      const buf=ac.createBuffer(1,ac.sampleRate*2,ac.sampleRate);
+      const d=buf.getChannelData(0);for(let i=0;i<d.length;i++)d[i]=Math.random()*2-1;
+      const src=ac.createBufferSource();src.buffer=buf;src.loop=true;
+      const bp=ac.createBiquadFilter();bp.type='bandpass';bp.frequency.value=freq*3;bp.Q.value=9;
+      src.connect(bp);bp.connect(g);src.start();nodes.push(src);
+    } else if(cls==='locked'){
+      const o=ac.createOscillator();o.type='sine';o.frequency.value=freq*2;
+      const o2=ac.createOscillator();o2.type='sine';o2.frequency.value=freq*3.01;
+      const g2=ac.createGain();g2.gain.value=0.35;o2.connect(g2);g2.connect(g);
+      o.connect(g);o.start();o2.start();nodes.push(o,o2);
+    } else if(cls==='drift'){
+      const o=ac.createOscillator();o.type='sine';o.frequency.value=freq*2;
+      const o2=ac.createOscillator();o2.type='sine';o2.frequency.value=freq*2*1.007;
+      o.connect(g);o2.connect(g);o.start();o2.start();nodes.push(o,o2);
+    } else {
+      const o=ac.createOscillator();o.type='sawtooth';o.frequency.value=freq;
+      const lp=ac.createBiquadFilter();lp.type='lowpass';lp.frequency.value=freq*4;
+      o.connect(lp);lp.connect(g);o.start();nodes.push(o);
+    }
+    const t=ac.currentTime;
+    g.gain.linearRampToValueAtTime(0.11,t+0.35);
+    g.gain.linearRampToValueAtTime(0.055,t+2.4);
+    this.voices.push({g,nodes,cls});
+  },
+  setOpen(v,secs=2.5){
+    if(!this.ac)return;
+    const t=this.ac.currentTime;
+    this.filter.frequency.cancelScheduledValues(t);
+    this.filter.frequency.linearRampToValueAtTime(v?4200:340,t+secs);
+    this.voices.forEach(vo=>{
+      vo.g.gain.cancelScheduledValues(t);
+      vo.g.gain.linearRampToValueAtTime(v?0.13:0.05,t+secs);
+    });
+  },
+  clear(){
+    if(!this.ac)return;
+    const t=this.ac.currentTime;
+    this.voices.forEach(v=>{v.g.gain.cancelScheduledValues(t);v.g.gain.linearRampToValueAtTime(0,t+1.2);
+      setTimeout(()=>v.nodes.forEach(n=>{try{n.stop()}catch(e){}}),1500)});
+    this.voices=[];
+  },
+  hush(on){
+    if(!this.ac)return;
+    const t=this.ac.currentTime;
+    this.master.gain.cancelScheduledValues(t);
+    this.master.gain.linearRampToValueAtTime(on?0.08:0.85,t+0.8);
+  }
+};
+
+/* ---------- session state ---------- */
+const cfg={micro:90,meso:6,macro:30,brk:5};
+let S=null;
+let wakeLock=null;
+
+function newSession(seed){
+  return {
+    seed,
+    garden:new Garden(seed),
+    log:[],                       // {step,species,x,y,kind}
+    t0:performance.now(),
+    microAt:0,mesoAt:0,macroAt:0,
+    pendingMicro:false,pendingMeso:false,
+    mode:'work',                  // work | bloom | break | paused
+    resumeMode:'work',
+    breakEnds:0,bloomUntil:0,
+    tally:{locked:0,drift:0,gone:0,micro:0,missed:0},
+    cycles:0,
+    startedISO:new Date().toISOString()
+  };
+}
+
+function plantSeed(species,kind){
+  const g=S.garden;
+  const [x,y]=g.openSpot();
+  g.plant(species,x,y);
+  S.log.push({step:g.step,species,x,y,kind});
+  Audio_.addVoice(species,x,y);
+}
+
+/* ---------- timing ---------- */
+function now(){return performance.now()}
+function fmt(ms){
+  ms=Math.max(0,ms);
+  const s=Math.round(ms/1000);
+  const m=Math.floor(s/60),r=s%60;
+  return m+':'+String(r).padStart(2,'0');
+}
+
+function tick(){
+  requestAnimationFrame(tick);
+  const g=S?S.garden:null;
+  if(!S){blit();return}
+
+  const t=now();
+
+  if(S.mode==='work'){
+    const microLen=cfg.micro*1000, mesoLen=cfg.meso*60000, macroLen=cfg.macro*60000;
+    // micro
+    if(!S.pendingMeso){
+      if(t-S.microAt>=microLen){
+        if(S.pendingMicro){S.tally.missed++}
+        S.pendingMicro=true;S.microAt=t;renderAct();
+      }
+    }
+    // meso
+    if(t-S.mesoAt>=mesoLen&&!S.pendingMeso){
+      S.pendingMeso=true;S.pendingMicro=false;S.mesoAt=t;renderAct();
+    }
+    // macro
+    if(t-S.macroAt>=macroLen){
+      enterBloom();
+    }
+    // slow ambient growth
+    if(!S._lastStep||t-S._lastStep>1800){S._lastStep=t;g.advance();paint(g,off,octx,img)}
+  }
+  else if(S.mode==='bloom'){
+    for(let k=0;k<7;k++)g.advance();
+    paint(g,off,octx,img);
+    if(t>S.bloomUntil)enterBreak();
+  }
+  else if(S.mode==='break'){
+    if(!S._lastStep||t-S._lastStep>380){S._lastStep=t;g.advance();paint(g,off,octx,img)}
+    if(t>=S.breakEnds)resumeWork();
+  }
+  else if(S.mode==='replay'){
+    for(let k=0;k<6;k++)replayStep();
+    paint(g,off,octx,img);
+  }
+
+  blit();
+  updateBand(t);
+}
+
+function updateBand(t){
+  const set=(el,r,frac)=>{
+    const c=2*Math.PI*r;
+    el.setAttribute('stroke-dasharray',c);
+    el.setAttribute('stroke-dashoffset',c*(1-Math.min(1,Math.max(0,frac))));
+  };
+  const bn=document.getElementById('bigNum'),sn=document.getElementById('subNum');
+  if(S.mode==='work'){
+    const microLen=cfg.micro*1000,mesoLen=cfg.meso*60000,macroLen=cfg.macro*60000;
+    set(document.getElementById('rMicro'),8,(t-S.microAt)/microLen);
+    set(document.getElementById('rMeso'),14,(t-S.mesoAt)/mesoLen);
+    set(document.getElementById('rMacro'),20,(t-S.macroAt)/macroLen);
+    bn.textContent=fmt(macroLen-(t-S.macroAt));
+    sn.textContent='until it blooms';
+  } else if(S.mode==='bloom'){
+    bn.textContent='—';sn.textContent='blooming';
+  } else if(S.mode==='break'){
+    bn.textContent=fmt(S.breakEnds-t);
+    sn.textContent='break — put it down';
+    set(document.getElementById('rMacro'),20,1-(S.breakEnds-t)/(S._breakLen||1));
+  } else if(S.mode==='paused'){
+    bn.textContent='paused';sn.textContent='nothing is counting';
+  } else if(S.mode==='replay'){
+    bn.textContent='—';sn.textContent='replaying';
+  }
+}
+
+/* ---------- phases ---------- */
+function enterBloom(){
+  S.mode='bloom';
+  S.bloomUntil=now()+9000;
+  S.pendingMicro=false;S.pendingMeso=false;
+  Audio_.setOpen(true,3.5);
+  renderAct();
+}
+function enterBreak(){
+  const bonus=Math.min(5,S.tally.locked-(S._lockedAtLastBreak||0));
+  S._lockedAtLastBreak=S.tally.locked;
+  const mins=cfg.brk+Math.max(0,bonus);
+  S._breakLen=mins*60000;
+  S.breakEnds=now()+S._breakLen;
+  S.mode='break';
+  S.cycles++;
+  renderAct();
+}
+function resumeWork(){
+  const t=now();
+  S.mode='work';
+  S.microAt=t;S.mesoAt=t;S.macroAt=t;
+  Audio_.setOpen(false,4);
+  renderAct();
+}
+
+/* ---------- action zone ---------- */
+const act=document.getElementById('act');
+function renderAct(){
+  act.innerHTML='';
+  if(!S){return}
+  if(S.mode==='paused'){
+    add('btn big','Resume',()=>{
+      const d=now()-S._pausedAt;
+      S.microAt+=d;S.mesoAt+=d;S.macroAt+=d;S.breakEnds+=d;S.bloomUntil+=d;
+      S.mode=S.resumeMode;Audio_.hush(false);renderAct();
+    });
+    add('btn quiet','End session and keep the garden',endSession);
+    return;
+  }
+  if(S.mode==='bloom'){
+    const p=document.createElement('div');p.className='ask';p.textContent='stop working';act.appendChild(p);
+    return;
+  }
+  if(S.mode==='break'){
+    const p=document.createElement('div');p.className='ask';
+    p.textContent='the garden is awake; you are not needed';
+    act.appendChild(p);
+    add('btn quiet','Skip the break',()=>{resumeWork()});
+    return;
+  }
+  // work
+  if(S.pendingMeso){
+    const p=document.createElement('div');p.className='ask';p.textContent='the last stretch — honestly';
+    act.appendChild(p);
+    const row=document.createElement('div');row.id='triad';act.appendChild(row);
+    mk(row,'Locked in',()=>answerMeso('locked'));
+    mk(row,'Drifted',()=>answerMeso('drift'));
+    mk(row,'Gone',()=>answerMeso('gone'));
+    return;
+  }
+  const b=document.createElement('button');
+  b.className='btn big'+(S.pendingMicro?' waiting':'');
+  b.textContent=S.pendingMicro?'Plant':'—';
+  b.disabled=!S.pendingMicro;
+  b.onclick=()=>{
+    if(!S.pendingMicro)return;
+    S.pendingMicro=false;S.tally.micro++;
+    plantSeed(MICRO_POOL[Math.floor(S.garden.rng()*3)],'micro');
+    renderAct();
+  };
+  act.appendChild(b);
+}
+function add(cls,label,fn){const b=document.createElement('button');b.className=cls;b.textContent=label;b.onclick=fn;act.appendChild(b);return b}
+function mk(parent,label,fn){const b=document.createElement('button');b.className='btn';b.textContent=label;b.onclick=fn;parent.appendChild(b);return b}
+
+function answerMeso(kind){
+  const pool=kind==='locked'?LOCKED_POOL:kind==='drift'?DRIFT_POOL:GONE_POOL;
+  S.tally[kind]++;
+  plantSeed(pool[Math.floor(S.garden.rng()*3)],kind);
+  S.pendingMeso=false;
+  S.microAt=now();
+  renderAct();
+}
+
+/* ---------- pause ---------- */
+document.getElementById('pause').onclick=()=>{
+  if(!S)return;
+  if(S.mode==='paused'){return}
+  S.resumeMode=S.mode;S._pausedAt=now();S.mode='paused';
+  Audio_.hush(true);renderAct();
+};
+
+/* ---------- begin ---------- */
+document.getElementById('begin').onclick=async()=>{
+  loadCfgFromInputs();
+  Audio_.init();
+  if(Audio_.ac.state==='suspended')await Audio_.ac.resume();
+  S=newSession(Math.floor(Math.random()*1e9));
+  const t=now();S.microAt=t;S.mesoAt=t;S.macroAt=t;
+  document.getElementById('veil').classList.add('gone');
+  paint(S.garden,off,octx,img);
+  renderAct();
+  requestWake();
+};
+
+async function requestWake(){
+  try{if('wakeLock'in navigator){wakeLock=await navigator.wakeLock.request('screen')}}catch(e){}
+}
+document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='visible'&&S)requestWake()});
+
+/* ---------- settings ---------- */
+const inputs={micro:sMicro,meso:sMeso,macro:sMacro,brk:sBreak};
+function syncInputs(){sMicro.value=cfg.micro;sMeso.value=cfg.meso;sMacro.value=cfg.macro;sBreak.value=cfg.brk}
+function loadCfgFromInputs(){
+  cfg.micro=clamp(+sMicro.value||90,15,600);
+  cfg.meso=clamp(+sMeso.value||6,1,60);
+  cfg.macro=clamp(+sMacro.value||30,5,180);
+  cfg.brk=clamp(+sBreak.value||5,1,60);
+  saveCfg();
+}
+function clamp(v,a,b){return Math.min(b,Math.max(a,v))}
+document.getElementById('toSettings').onclick=()=>{syncInputs();settings.classList.add('on')};
+document.getElementById('closeSettings').onclick=()=>{loadCfgFromInputs();settings.classList.remove('on')};
+
+/* ---------- archive ---------- */
+async function saveCfg(){try{await window.storage.set('eg:cfg',JSON.stringify(cfg))}catch(e){}}
+async function loadCfg(){try{const r=await window.storage.get('eg:cfg');if(r)Object.assign(cfg,JSON.parse(r.value))}catch(e){}syncInputs()}
+
+async function getArchive(){
+  try{const r=await window.storage.get('eg:archive');return r?JSON.parse(r.value):[]}catch(e){return[]}
+}
+async function endSession(){
+  const entry={
+    id:'g'+Date.now(),
+    seed:S.seed,
+    log:S.log,
+    tally:S.tally,
+    cycles:S.cycles,
+    started:S.startedISO,
+    minutes:Math.round((now()-S.t0)/60000)
+  };
+  try{
+    const list=await getArchive();
+    list.unshift(entry);
+    await window.storage.set('eg:archive',JSON.stringify(list.slice(0,40)));
+  }catch(e){}
+  Audio_.clear();
+  S=null;
+  document.getElementById('veil').classList.remove('gone');
+  act.innerHTML='';
+  document.getElementById('bigNum').textContent='—';
+  document.getElementById('subNum').textContent='saved';
+  octx.clearRect(0,0,W,H);
+  const d=img.data;for(let i=0;i<N;i++){const o=i*4;d[o]=20;d[o+1]=23;d[o+2]=15;d[o+3]=255}
+  octx.putImageData(img,0,0);
+}
+
+document.getElementById('toArchive').onclick=async()=>{
+  const list=await getArchive();
+  const holder=document.getElementById('archList');
+  holder.innerHTML='';
+  if(!list.length){holder.innerHTML='<div class="empty">Nothing has grown here yet. Finish a session and it will keep the seeds — the garden regrows from them exactly, sound and all.</div>'}
+  for(const e of list){
+    const row=document.createElement('div');row.className='entry';
+    const c=document.createElement('canvas');c.width=W;c.height=H;
+    row.appendChild(c);
+    const meta=document.createElement('div');meta.className='meta';
+    const dt=new Date(e.started);
+    meta.innerHTML='<b>'+dt.toLocaleDateString(undefined,{month:'short',day:'numeric'})+
+      ' · '+e.minutes+' min</b><span>'+e.tally.locked+' locked in, '+e.tally.drift+' drifted, '+e.tally.gone+' gone</span>';
+    row.appendChild(meta);
+    const b=document.createElement('button');b.textContent='Replay';
+    b.onclick=()=>startReplay(e);
+    row.appendChild(b);
+    holder.appendChild(row);
+    // thumbnail: fast-forward silently
+    const gg=regrow(e,900);
+    const tc=c.getContext('2d');const ti=tc.createImageData(W,H);
+    paint(gg,c,tc,ti);
+  }
+  archive.classList.add('on');
+};
+document.getElementById('closeArchive').onclick=()=>archive.classList.remove('on');
+
+function regrow(entry,steps){
+  const g=new Garden(entry.seed);
+  const log=[...entry.log].sort((a,b)=>a.step-b.step);
+  let li=0;
+  for(let s=0;s<steps;s++){
+    while(li<log.length&&log[li].step<=s){g.plant(log[li].species,log[li].x,log[li].y);li++}
+    g.advance();
+  }
+  while(li<log.length){g.plant(log[li].species,log[li].x,log[li].y);li++}
+  for(let s=0;s<120;s++)g.advance();
+  return g;
+}
+
+let replayState=null;
+function startReplay(entry){
+  archive.classList.remove('on');
+  Audio_.init();
+  if(Audio_.ac.state==='suspended')Audio_.ac.resume();
+  Audio_.clear();
+  S=newSession(entry.seed);
+  S.mode='replay';
+  replayState={log:[...entry.log].sort((a,b)=>a.step-b.step),i:0,step:0,total:2200};
+  document.getElementById('veil').classList.add('gone');
+  Audio_.setOpen(true,2);
+  act.innerHTML='';
+  add('btn quiet','Stop replay',()=>{Audio_.clear();S=null;replayState=null;
+    document.getElementById('veil').classList.remove('gone');act.innerHTML=''});
+}
+function replayStep(){
+  if(!replayState)return;
+  const r=replayState,g=S.garden;
+  while(r.i<r.log.length&&r.log[r.i].step<=r.step){
+    const e=r.log[r.i];g.plant(e.species,e.x,e.y);Audio_.addVoice(e.species,e.x,e.y);r.i++;
+  }
+  g.advance();r.step++;
+  if(r.step>r.total&&r.i>=r.log.length){S.mode='break';S.breakEnds=now()+1;}
+}
+
+/* ---------- boot ---------- */
+loadCfg();
+{
+  const d=img.data;for(let i=0;i<N;i++){const o=i*4;d[o]=20;d[o+1]=23;d[o+2]=15;d[o+3]=255}
+  octx.putImageData(img,0,0);
+}
+requestAnimationFrame(tick);
+</script>
