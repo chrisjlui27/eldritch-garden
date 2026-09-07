@@ -204,6 +204,24 @@ const ALIEN_CHANCE={micro:0.22,locked:0.24,drift:0.28,gone:0.38};
    than on its own rule. Keyed on the unordered pair so order never matters, which
    also keeps it replay-stable. Pairs not listed fall through to: if one of the
    two is alien, the alien takes the cell. */
+/* Every bloom has a character, drawn once when it begins, so two finished
+   gardens do not look like each other: one mirrors, one turns radial, one
+   crystallises, one dissolves to filigree.
+
+   `dig` is the anti-blob term and is high in all four. Transmutation used to sit
+   in this ruleset — cells converting to whatever most surrounded them — which is
+   a majority filter, i.e. a blob generator, and it was what made a finished
+   garden read as slabs of one colour. It is gone. */
+const BLOOM_MODES=[
+  // `fill` is each character's share of POP_CAP. Without it every bloom ran to
+  // the same ceiling and all four ended at the same density, which made them
+  // read as the same garden four times however differently they got there.
+  {name:"mirror",      mirror:0.16, radial:0,    dig:0.14, efflor:0.005, conj:0.030, fill:0.85},
+  {name:"radial",      mirror:0.01, radial:0.11, dig:0.14, efflor:0.005, conj:0.030, fill:0.80},
+  {name:"crystalline", mirror:0.02, radial:0.02, dig:0.30, efflor:0.026, conj:0.055, fill:1.00, geomOnly:true},
+  {name:"dissolution", mirror:0.02, radial:0,    dig:0.50, efflor:0.004, conj:0.070, fill:0.42}
+];
+
 const REACT={};
 function react(a,b,out){REACT[Math.min(a,b)*32+Math.max(a,b)]=out}
 react(SP.crust,SP.rot,SP.mycelium);
@@ -430,6 +448,14 @@ class Garden{
     return {hist,rows,live};
   }
 
+  /* A bloom takes its character here, from the growth stream, so a replay that
+     reaches the same step draws the same one. */
+  beginBloom(){
+    this.bloom=true;
+    this.bloomMode=Math.floor(this.rng()*BLOOM_MODES.length);
+    this.bloomFill=BLOOM_MODES[this.bloomMode].fill;
+  }
+
   /* Ends a bloom by killing everything standing. You finish a macro with a dead
      garden and plant the next one on top of it — the husk stays visible
      underneath, and the substrate every corpse leaves is what `veil` needs to
@@ -456,7 +482,8 @@ class Garden{
     // inheritance. `c` is the parent's colony id (1-based) and children inherit
     // it — that is what makes per-colony behaviour possible at all.
     const put=(x,y,s,c)=>{
-      if(live>=POP_CAP)return false;
+      // a blooming field runs to its character's own ceiling, not the standing one
+      if(live>=(this.bloom?POP_CAP*(this.bloomFill||1):POP_CAP))return false;
       if(!this.inb(x,y))return false;
       const i=this.idx(x,y);
       if(nx0[i])return false;
@@ -467,7 +494,7 @@ class Garden{
         if(col){
           // Standing size cap — except in bloom, when colonies are allowed to burst
           // far past anything ordinary growth permits.
-          if(col.n>=(this.bloom?col.cap*3:col.cap))return false;
+          if(col.n>=(this.bloom?col.cap*2:col.cap))return false;
           if(t){
             const ddx=x-col.ox,ddy=y-col.oy;
             if(ddx*ddx+ddy*ddy>t.maxR*t.maxR)return false;
@@ -739,34 +766,55 @@ class Garden{
        All of it is driven from sim state and this.bloom, never from the clock, so
        a replay that sets the same flag reproduces it exactly. */
     if(this.bloom){
+      const M=BLOOM_MODES[this.bloomMode]||BLOOM_MODES[0];
+      const cx=W/2, cy=H/2;
       for(let y=0;y<H;y++)for(let x=0;x<W;x++){
         const i=this.idx(x,y);const s=nx0[i];
         if(!s)continue;
 
-        // 1. Mirror. The field acquires a symmetry it does not have in life —
-        //    growth is echoed across the vertical axis, so the garden turns into
-        //    something with a body plan.
-        if(rng()<0.05){
+        // 1. Excavation. Any cell buried inside a solid mass of its own kind
+        //    dies. This is the anti-blob rule, and the reason a bloomed garden
+        //    ends as shells and lace rather than slabs of one colour: growth may
+        //    still fill, but nothing is allowed to stay filled. Interiors hollow
+        //    out, surfaces survive, and the holes are left rich enough to grow
+        //    back into, so the mass keeps turning into structure.
+        if(rng()<M.dig){
+          let same=0;
+          for(let dy=-1;dy<=1;dy++)for(let dx=-1;dx<=1;dx++){
+            if(!dx&&!dy)continue;
+            const tx=x+dx,ty=y+dy;
+            if(this.inb(tx,ty)&&nx0[this.idx(tx,ty)]===s)same++;
+          }
+          if(same>=6){kill(x,y,2);continue}
+        }
+
+        // 2. Symmetry. Mirrored across the vertical axis, or rotated into one of
+        //    six sectors about the centre, according to the bloom's character.
+        if(M.mirror&&rng()<M.mirror){
           const mx=W-1-x;
           if(mx!==x&&!nx0[this.idx(mx,y)])put(mx,y,s,cid[i]);
         }
+        if(M.radial&&rng()<M.radial){
+          const ddx=x-cx, ddy=y-cy;
+          const a=Math.atan2(ddy,ddx)+(1+Math.floor(rng()*5))*(Math.PI/3);
+          const r=Math.sqrt(ddx*ddx+ddy*ddy);
+          put(Math.round(cx+Math.cos(a)*r),Math.round(cy+Math.sin(a)*r),s,cid[i]);
+        }
 
-        // 2. Efflorescence. Living cells throw off the alien families — the geometry
-        //    and aberration species erupt out of the organic ones. Gated on rich
-        //    ground at first, which turned out to have decayed almost to nothing by
-        //    bloom time, so the bloom added no species at all. Now any cell can.
-        if(rng()<0.006*(sub[i]>=2?3:1)){
-          const ap=ALIEN_POOLS[Math.floor(rng()*ALIEN_POOLS.length)];
+        // 3. Efflorescence. Living cells throw off the alien families — geometry
+        //    and aberration erupting out of the organic ones.
+        if(rng()<M.efflor*(sub[i]>=2?3:1)){
+          const ap=M.geomOnly?GEOM_POOL:ALIEN_POOLS[Math.floor(rng()*ALIEN_POOLS.length)];
           const sp2=ap[Math.floor(rng()*3)];
           const a=rng()*Math.PI*2, rr=2+rng()*4;
           put(Math.round(x+Math.cos(a)*rr),Math.round(y+Math.sin(a)*rr),sp2,cid[i]);
         }
 
-        // 3. Conjunction. A cell reacts with an unlike neighbour and becomes a
+        // 4. Conjunction. A cell reacts with an unlike neighbour and becomes a
         //    third thing. This is the cross-cell rule: everywhere else in the sim
         //    a cell only consults its own species and its own colony, so nothing
         //    outside a bloom can produce chemistry between two organisms.
-        if(rng()<0.035){
+        if(rng()<M.conj){
           const[dx,dy]=DIRS[Math.floor(rng()*4)];
           const tx=x+dx,ty=y+dy;
           if(this.inb(tx,ty)){
@@ -781,23 +829,9 @@ class Garden{
             }
           }
         }
-
-        // 4. Transmutation. Cells convert to whatever most surrounds them, so
-        //    colonies bleed into each other and the field reorganises.
-        if(rng()<0.012){
-          const tally={};let best=0,bs=0;
-          for(let dy=-2;dy<=2;dy++)for(let dx=-2;dx<=2;dx++){
-            const tx=x+dx,ty=y+dy;
-            if(!this.inb(tx,ty))continue;
-            const q=nx0[this.idx(tx,ty)];
-            if(!q||q===s)continue;
-            tally[q]=(tally[q]||0)+1;
-            if(tally[q]>bs){bs=tally[q];best=q}
-          }
-          if(best&&bs>=4){nx0[i]=best;age[i]=0}
-        }
       }
     }
+
 
     /* Anastomosis. During a bloom every living colony reaches toward its nearest
        neighbour and draws a thread of prism between them, so the field stops
@@ -1227,6 +1261,8 @@ const Audio_={
     if(g.ev.mutated>0&&t-(this._lastMut||0)>4.0){this._lastMut=t;this.accent("mutate")}
     const since=t-(this._lastField||0);
     if(since<0.55)return;
+    // while a swell or collapse is ramping, leave its params alone
+    const swelling=t<(this._swellUntil||0);
     this._lastField=t;
     const churn=Math.min(1,(this._churn/Math.max(0.2,since))/150);
     this._churn=0;
@@ -1262,10 +1298,12 @@ const Audio_={
     if(any){
       try{ T.osc.setPeriodicWave(this.ac.createPeriodicWave(re,im)); }catch(e){}
     }
-    T.og.gain.cancelScheduledValues(t);
-    T.og.gain.linearRampToValueAtTime(p.live?(bloom?0.07:0.034):0,t+0.9);
-    T.ofilt.frequency.cancelScheduledValues(t);
-    T.ofilt.frequency.linearRampToValueAtTime(bloom?3000:460+churn*800,t+0.9);
+    if(!swelling){
+      T.og.gain.cancelScheduledValues(t);
+      T.og.gain.linearRampToValueAtTime(p.live?(bloom?0.07:0.034):0,t+0.9);
+      T.ofilt.frequency.cancelScheduledValues(t);
+      T.ofilt.frequency.linearRampToValueAtTime(bloom?3000:460+churn*800,t+0.9);
+    }
   },
   accent(kind){
     const ac=this.ac,t=ac.currentTime;
@@ -1298,6 +1336,40 @@ const Audio_={
       p.g.gain.cancelScheduledValues(t);
       p.g.gain.linearRampToValueAtTime(0.042+Math.min(0.45,d)*0.16,t+2.4);
     });
+  },
+  /* The bloom in sound. Not just the master filter opening: the voice bus lifts,
+     the pad swells, the texture bank widens, and the field oscillator comes
+     forward, so the whole mix opens at once and the twenty-two seconds read as an
+     event rather than a brightening.
+
+     Off is the collapse at wither. It has to land at the END of the bloom rather
+     than at the end of the break — the garden has just died, and carrying a bright
+     open mix through the whole break made the death read as nothing happening. */
+  bloomSwell(on,secs){
+    if(!this.ac)return;
+    const t=this.ac.currentTime, T=this.tex;
+    const s=secs||(on?12:5);
+    this.filter.frequency.cancelScheduledValues(t);
+    this.filter.frequency.linearRampToValueAtTime(on?5200:340,t+s);
+    const dens=Math.min(1,3.2/Math.sqrt(this.voices.length+8));
+    this.vbus.gain.cancelScheduledValues(t);
+    this.vbus.gain.linearRampToValueAtTime(on?Math.min(1,dens*1.7):dens,t+s);
+    this.voices.forEach(v=>{
+      v.g.gain.cancelScheduledValues(t);
+      v.g.gain.linearRampToValueAtTime(on?0.135:0.042,t+s);
+    });
+    if(this.pad)this.pad.forEach(p=>{
+      p.g.gain.cancelScheduledValues(t);
+      p.g.gain.linearRampToValueAtTime(on?0.15:0.05,t+s);
+    });
+    if(T){
+      T.og.gain.cancelScheduledValues(t);
+      T.og.gain.linearRampToValueAtTime(on?0.11:0.028,t+s);
+      T.ofilt.frequency.cancelScheduledValues(t);
+      T.ofilt.frequency.linearRampToValueAtTime(on?3600:420,t+s);
+    }
+    // hold the readGarden updates off the params we just scheduled
+    this._swellUntil=t+s;
   },
   /* The last seconds before a bloom lift the filter a little, so the bloom is
      arrived at rather than switched on. No UI, no number to watch. */
@@ -1567,17 +1639,18 @@ function enterBloom(){
   S._bloomDone=0;
   // The bloom is a sim event, not just a phase of the UI, so it goes in the log.
   // Without this a replay would never know a bloom happened and would diverge.
-  S.garden.bloom=true;
+  S.garden.beginBloom();
   S.log.push({step:S.garden.step,kind:"bloom"});
   S.pendingMicro=false;S.pendingMeso=false;
-  // the sweep is supposed to happen *over* the bloom, so it tracks the duration
-  Audio_.setOpen(true,BLOOM_MS/1000*0.7);
+  Audio_.bloomSwell(true,BLOOM_MS/1000*0.62);
   renderAct();
 }
 function enterBreak(){
   if(S.garden.bloom){
     S.log.push({step:S.garden.step,kind:"wither"});
     S.garden.wither();
+    // the collapse belongs here, at the death, not at the end of the break
+    Audio_.bloomSwell(false,5);
   }
   const bonus=Math.min(5,S.tally.locked-(S._lockedAtLastBreak||0));
   S._lockedAtLastBreak=S.tally.locked;
@@ -1593,7 +1666,6 @@ function resumeWork(){
   S.mode="work";
   S.microAt=t;S.mesoAt=t;S.macroAt=t;
   S._preBloom=false;
-  Audio_.setOpen(false,4);
   renderAct();
 }
 
@@ -1848,7 +1920,7 @@ function regrow(entry,steps){
   // The log holds two sorts of entry: seeds, and the phase events that change how
   // the sim behaves. Both have to be replayed or the garden diverges.
   const apply=e=>{
-    if(e.kind==="bloom")g.bloom=true;
+    if(e.kind==="bloom")g.beginBloom();
     else if(e.kind==="wither")g.wither();
     else g.plant(e.species,e.x,e.y);
   };
@@ -1880,7 +1952,7 @@ function replayStep(){
   const r=replayState,g=S.garden;
   while(r.i<r.log.length&&r.log[r.i].step<=r.step){
     const e=r.log[r.i];
-    if(e.kind==="bloom"){g.bloom=true;Audio_.setOpen(true,6)}
+    if(e.kind==="bloom"){g.beginBloom();Audio_.setOpen(true,6)}
     else if(e.kind==="wither"){g.wither()}
     else {g.plant(e.species,e.x,e.y);Audio_.addVoice(e.species,e.x,e.y)}
     r.i++;

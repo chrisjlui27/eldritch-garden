@@ -83,16 +83,34 @@ change makes the app more engaging but more interruptive, it is a regression.
 | Macro | 30 min  | Bloom, then break: 5 min base + 1 min per Locked-in stretch, cap 5 bonus. |
 
 **The bloom is not the same garden running faster.** For its 22 seconds the field
-obeys five rulesets that exist nowhere else, with mortality suspended and colony
-caps lifted to 3×:
+obeys rules that exist nowhere else, with mortality suspended and colony caps
+lifted to 2×:
 
-- **Mirror** — the field acquires a symmetry it never has in life.
+- **Excavation** — any cell buried inside a solid mass of its own kind dies.
+- **Symmetry** — mirrored across the vertical axis, or rotated into six sectors.
 - **Efflorescence** — organic cells throw off the alien families.
 - **Conjunction** — a cell reacts with an *unlike neighbour* and becomes a third
   thing, per the `REACT` table.
-- **Transmutation** — cells convert to whatever most surrounds them.
 - **Anastomosis** — every living colony reaches for its nearest neighbour and
   draws a thread of prism between them.
+
+**Excavation is the anti-blob rule and it is load-bearing.** The bloom used to
+run *transmutation* — cells converting to whatever most surrounded them — which
+is a majority filter, i.e. a blob generator, and it made every finished garden a
+few big slabs of one colour. Growth may still fill; nothing is allowed to stay
+filled. Interiors hollow out, surfaces survive, the holes are left rich enough to
+grow back into, and mass keeps turning into structure. Measured: solid interior
+(a cell whose eight neighbours are all its own species) sits at 0%.
+
+**Every bloom draws a character** in `beginBloom()` — mirror, radial,
+crystalline, dissolution — which sets the rule weights *and* a `fill` share of
+`POP_CAP`. The fill matters as much as the rules: without it every bloom ran to
+the same ceiling and all four ended at the same density, so they read as one
+garden however differently they got there. Finished gardens now span 17–39%
+cover, and no species takes more than about a third of the field.
+
+The character is drawn from the **growth** stream, so a replay reaching the same
+step redraws the same one.
 
 **Conjunction and anastomosis are the cross-cell rules, and the bloom is the only
 place they exist.** Everywhere else a cell consults its own species and its own
@@ -212,6 +230,18 @@ movement that whole-field reads gave over an entire macro.
 
 Two accents — a mouth biting, mycelium mutating a colony — are hard-limited to
 seconds apart, and they are the only event-triggered sounds.
+
+**`bloomSwell(on)` is the bloom in sound**, and it moves the whole mix at once
+rather than just opening the master filter: voice bus up, pad up, texture bank
+widened, field oscillator forward, filter 340 Hz → 5.2 kHz. The collapse fires at
+**wither**, not at the end of the break — the garden has just died, and carrying
+a bright open mix through the whole break made that death read as nothing
+happening. Voices land *below* their old baseline afterwards, so a withered
+garden's voices recede into ghosts and each new macro's plants come in brighter
+over them. The drone stratifies by generation. That was emergent; keep it.
+
+While a swell is ramping, `readGarden` leaves the params it scheduled alone —
+otherwise the two fight every 0.55 s.
 
 Keep it continuous, and keep it a *read*. One sound per cell event is the obvious
 idea and it is wrong: at thousands of cells a step it becomes a wall of noise
