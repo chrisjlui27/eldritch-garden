@@ -204,7 +204,7 @@ const COLOR={};
 // reading as a lawn. They are still the bulk filler and still one family, but at
 // ~20 colonies a macro they set the overall colour of the garden, and while they
 // were green the garden was green whatever else was planted. Bead keeps its ochre
-// — it is the only warm thing left and the contrast is worth more than consistency.
+// â€” it is the only warm thing left and the contrast is worth more than consistency.
 COLOR[SP.crust]=[0x5a,0x68,0x7c];
 COLOR[SP.filament]=[0x72,0x82,0xa0];
 COLOR[SP.bead]=[0xc0,0xa6,0x74];
@@ -1092,7 +1092,7 @@ const Audio_={
   /* Driven from the sim per-step event counters. Continuous, not one sound per
      event: with thousands of cells a step, per-event triggers would be a wall of
      noise within a minute. The two accents are hard-limited so they stay
-     punctuation — they mark the only events that mean anything structural, a
+     punctuation â€” they mark the only events that mean anything structural, a
      mouth taking a bite and mycelium mutating a colony. */
   setActivity(ev,density,bloom){
     if(!this.ac||!this.tex)return;
@@ -1216,7 +1216,7 @@ function newSession(seed){
 }
 
 /* Which species a plant actually yields. Any plant may come up alien instead of
-   what its pool intended — see ALIEN_CHANCE. Draws from `pick`, never `rng`, so
+   what its pool intended â€” see ALIEN_CHANCE. Draws from `pick`, never `rng`, so
    the growth stream is untouched and replay reads the species from the log. */
 function speciesFor(kind){
   const g=S.garden;
