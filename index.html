@@ -199,6 +199,26 @@ const ALIEN_POOLS=[GEOM_POOL,ABERR_POOL];
    wildest answer you can give. Undocumented, like everything else. */
 const ALIEN_CHANCE={micro:0.22,locked:0.24,drift:0.28,gone:0.38};
 
+/* Bloom chemistry. Two unlike species touching produce a third — the only place
+   in the sim where what a cell becomes depends on what its neighbour is, rather
+   than on its own rule. Keyed on the unordered pair so order never matters, which
+   also keeps it replay-stable. Pairs not listed fall through to: if one of the
+   two is alien, the alien takes the cell. */
+const REACT={};
+function react(a,b,out){REACT[Math.min(a,b)*32+Math.max(a,b)]=out}
+react(SP.crust,SP.rot,SP.mycelium);
+react(SP.filament,SP.prism,SP.helix);
+react(SP.spire,SP.hollow,SP.tessera);
+react(SP.drifter,SP.veil,SP.stutter);
+react(SP.lattice,SP.mouth,SP.prism);
+react(SP.bead,SP.spore,SP.veil);
+react(SP.cistern,SP.tendril,SP.hollow);
+react(SP.rot,SP.mycelium,SP.mouth);
+react(SP.crust,SP.lattice,SP.tessera);
+react(SP.tendril,SP.prism,SP.stutter);
+react(SP.bead,SP.hollow,SP.cistern);
+react(SP.spore,SP.mouth,SP.rot);
+
 const COLOR={};
 // Commons: pulled off grass-green into violet slate, so the field stops
 // reading as a lawn. They are still the bulk filler and still one family, but at
@@ -293,6 +313,7 @@ TRAIT[SP.hollow]  ={life:440,maxR:17,cap:125};   // was 24/170: the rings swallo
 TRAIT[SP.stutter] ={life:400,maxR:26,cap:130};
 TRAIT[SP.veil]    ={life:600,maxR:20,cap:200};
 
+const BANDS=10;                     // horizontal slices the audio reads the field in
 const DEATH_P=0.10;                 // per-step chance of dying once past `life`
 const POP_CAP=Math.round(N*0.40);   // growth stops here; death brings it back down
 const SUB_DECAY_EVERY=48;           // steps between richness sweeps
@@ -379,6 +400,34 @@ class Garden{
     // whole field test.
     if(!best)best=[1+Math.floor(this.pick()*(W-2)),1+Math.floor(this.pick()*(H-2))];
     return best;
+  }
+
+  /* A read of the field for the audio to pull from. The garden is not triggering
+     sounds here — it is the substrate the texture is scanned out of. Species mix
+     becomes a harmonic spectrum, the vertical density profile becomes the shape
+     of the noise, so the timbre is the garden rather than a reaction to it.
+
+     Read-only: no rng, no mutation. It cannot affect determinism, and it is
+     called a couple of times a second rather than per step. */
+  profile(x0,w){
+    const hist=new Float32Array(19), rows=new Float32Array(BANDS), sp=this.sp;
+    const rowsPer=H/BANDS;
+    const from=(x0===undefined)?0:x0, span=(w===undefined)?W:w;
+    let live=0;
+    for(let y=0;y<H;y++){
+      const b=Math.min(BANDS-1,Math.floor(y/rowsPer)), base=y*W;
+      for(let k=0;k<span;k++){
+        const s=sp[base+((from+k)%W)];
+        if(!s)continue;
+        live++;hist[s]++;rows[b]++;
+      }
+    }
+    const per=span*rowsPer;
+    // 0.42 saturated the dense bands to a flat 1.0 and threw away the contrast
+    // between them; at 0.72 only a genuinely packed band tops out.
+    for(let b=0;b<BANDS;b++)rows[b]=Math.min(1,rows[b]/(per*0.72));
+    if(live)for(let s=1;s<=18;s++)hist[s]/=live;
+    return {hist,rows,live};
   }
 
   /* Ends a bloom by killing everything standing. You finish a macro with a dead
@@ -713,7 +762,27 @@ class Garden{
           put(Math.round(x+Math.cos(a)*rr),Math.round(y+Math.sin(a)*rr),sp2,cid[i]);
         }
 
-        // 3. Transmutation. Cells convert to whatever most surrounds them, so
+        // 3. Conjunction. A cell reacts with an unlike neighbour and becomes a
+        //    third thing. This is the cross-cell rule: everywhere else in the sim
+        //    a cell only consults its own species and its own colony, so nothing
+        //    outside a bloom can produce chemistry between two organisms.
+        if(rng()<0.035){
+          const[dx,dy]=DIRS[Math.floor(rng()*4)];
+          const tx=x+dx,ty=y+dy;
+          if(this.inb(tx,ty)){
+            const j=this.idx(tx,ty), o=nx0[j];
+            if(o&&o!==s){
+              let out=REACT[Math.min(s,o)*32+Math.max(s,o)];
+              if(!out){
+                const sa=s>=13, oa=o>=13;
+                out=sa!==oa?(sa?s:o):0;   // an alien touching an organic takes it
+              }
+              if(out){nx0[i]=out;age[i]=0}
+            }
+          }
+        }
+
+        // 4. Transmutation. Cells convert to whatever most surrounds them, so
         //    colonies bleed into each other and the field reorganises.
         if(rng()<0.012){
           const tally={};let best=0,bs=0;
@@ -726,6 +795,40 @@ class Garden{
             if(tally[q]>bs){bs=tally[q];best=q}
           }
           if(best&&bs>=4){nx0[i]=best;age[i]=0}
+        }
+      }
+    }
+
+    /* Anastomosis. During a bloom every living colony reaches toward its nearest
+       neighbour and draws a thread of prism between them, so the field stops
+       being a scatter of separate organisms and becomes a connected thing. The
+       other cross-cell rule, and the one that operates between colonies rather
+       than between cells.
+
+       Threads ignore the extent cap on purpose — reaching a long way is the
+       entire point — but they still respect POP_CAP. */
+    if(this.bloom){
+      for(const c of this.colonies){
+        if(c.n<=0)continue;
+        if(c.thread===undefined){
+          let bd=1e9,bt=null;
+          for(const o of this.colonies){
+            if(o===c||o.n<=0)continue;
+            const dd=(o.ox-c.ox)*(o.ox-c.ox)+(o.oy-c.oy)*(o.oy-c.oy);
+            if(dd<bd){bd=dd;bt=o}
+          }
+          c.thread=bt?{x:c.ox,y:c.oy,tx:bt.ox,ty:bt.oy}:null;
+        }
+        const th=c.thread;
+        if(!th||rng()>=0.55)continue;
+        const sx=Math.sign(th.tx-th.x), sy=Math.sign(th.ty-th.y);
+        if(!sx&&!sy)continue;
+        if(rng()<0.75)th.x+=sx;
+        if(rng()<0.75)th.y+=sy;
+        if(!this.inb(th.x,th.y))continue;
+        const j=this.idx(th.x,th.y);
+        if(!nx0[j]&&live<POP_CAP){
+          nx0[j]=SP.prism;age[j]=0;cid[j]=c.id+1;live++;ev.born++;c.n++;
         }
       }
     }
@@ -1074,41 +1177,95 @@ const Audio_={
     g.gain.exponentialRampToValueAtTime(0.0006,t+dur);
     o.start(t);o2.start(t);o.stop(t+dur+0.4);o2.stop(t+dur+0.4);
   },
-  /* A noise bed the garden plays through. Its filter and level follow what the
-     sim is doing, so the texture shifts as the field grows, crowds and dies
-     instead of sitting where it was at the first tap. */
+  /* The texture is scanned out of the field rather than triggered by it.
+
+     One bandpass per horizontal slice of the grid, low bands at the bottom, so
+     the noise takes the shape of where the garden actually is — a field growing
+     upward opens the top of the spectrum, a field eaten out in the middle
+     notches it. And an oscillator whose waveform is built from the species mix:
+     harmonic k is how much of species k is alive, so the timbre is literally
+     what is growing. Neither reacts to events; both read state.
+
+     This is why it varies. The old texture was one bandpass following a churn
+     scalar, and churn is roughly constant, so it sat still for half an hour. */
   startTexture(){
     const ac=this.ac;
     const buf=ac.createBuffer(1,Math.floor(ac.sampleRate*4),ac.sampleRate);
     const d=buf.getChannelData(0);
     for(let i=0;i<d.length;i++)d[i]=(Math.random()*2-1)*0.5;
-    const src=ac.createBufferSource();src.buffer=buf;src.loop=true;
-    const bp=ac.createBiquadFilter();bp.type="bandpass";bp.frequency.value=420;bp.Q.value=1.4;
-    const g=ac.createGain();g.gain.value=0;
-    src.connect(bp);bp.connect(g);g.connect(this.bus);
-    src.start();
-    this.tex={src,bp,g};
+    const src=ac.createBufferSource();src.buffer=buf;src.loop=true;src.start();
+    // the whole texture pans with the read head, on the same left-to-right
+    // convention the planted voices already use for column
+    const tp=ac.createStereoPanner?ac.createStereoPanner():null;
+    if(tp)tp.connect(this.bus);
+    const bands=[];
+    for(let b=0;b<BANDS;b++){
+      // top rows are high, matching how the planted voices take pitch from row
+      const f=88*Math.pow(2,(BANDS-1-b)*0.42);
+      const bp=ac.createBiquadFilter();bp.type="bandpass";bp.frequency.value=f;bp.Q.value=5.5;
+      const g=ac.createGain();g.gain.value=0;
+      src.connect(bp);bp.connect(g);g.connect(tp||this.bus);
+      bands.push({bp,g});
+    }
+    const osc=ac.createOscillator();osc.frequency.value=55;
+    const ofilt=ac.createBiquadFilter();ofilt.type="lowpass";ofilt.frequency.value=700;ofilt.Q.value=0.8;
+    const og=ac.createGain();og.gain.value=0;
+    osc.connect(ofilt);ofilt.connect(og);og.connect(this.bus);
+    osc.start();
+    if(tp)og.disconnect();
+    if(tp)og.connect(tp);
+    this.tex={src,bands,osc,ofilt,og,pan:tp,scan:0};
   },
-  /* Driven from the sim per-step event counters. Continuous, not one sound per
-     event: with thousands of cells a step, per-event triggers would be a wall of
-     noise within a minute. The two accents are hard-limited so they stay
-     punctuation — they mark the only events that mean anything structural, a
-     mouth taking a bite and mycelium mutating a colony. */
-  setActivity(ev,density,bloom){
+  /* Called every sim step. Accents and churn accumulate here; the field itself is
+     re-read a couple of times a second, which is often enough to hear it move and
+     cheap enough to ignore. */
+  readGarden(g,bloom){
     if(!this.ac||!this.tex)return;
     const t=this.ac.currentTime;
-    if(t-(this._lastAct||0)<0.35)return;
-    this._lastAct=t;
-    const churn=Math.min(1,(ev.born+ev.died)/240);
-    const level=(bloom?0.055:0.020)+churn*(bloom?0.10:0.042);
-    const freq=260+churn*1500+density*900+(bloom?1200:0);
-    this.tex.g.gain.cancelScheduledValues(t);
-    this.tex.g.gain.linearRampToValueAtTime(level,t+0.5);
-    this.tex.bp.frequency.cancelScheduledValues(t);
-    this.tex.bp.frequency.linearRampToValueAtTime(freq,t+0.5);
-    this.tex.bp.Q.value=bloom?0.8:1.4+churn*2.2;
-    if(ev.eaten>18&&t-(this._lastEat||0)>3.0){this._lastEat=t;this.accent("eat")}
-    if(ev.mutated>0&&t-(this._lastMut||0)>4.0){this._lastMut=t;this.accent("mutate")}
+    this._churn=(this._churn||0)+g.ev.born+g.ev.died;
+    if(g.ev.eaten>18&&t-(this._lastEat||0)>3.0){this._lastEat=t;this.accent("eat")}
+    if(g.ev.mutated>0&&t-(this._lastMut||0)>4.0){this._lastMut=t;this.accent("mutate")}
+    const since=t-(this._lastField||0);
+    if(since<0.55)return;
+    this._lastField=t;
+    const churn=Math.min(1,(this._churn/Math.max(0.2,since))/150);
+    this._churn=0;
+
+    const T=this.tex;
+    // The read head sweeps whether or not the garden moves. During work the sim
+    // advances one step per 1.8 s, so a whole-field read would sit still for
+    // minutes at a time; a travelling head means the timbre keeps changing
+    // because it keeps arriving somewhere else. Roughly 20 s a lap, faster in
+    // bloom.
+    const WIN=9;
+    T.scan=(T.scan+(bloom?4:2))%W;
+    const p=g.profile(T.scan,WIN);
+    if(T.pan){
+      const px=((T.scan+WIN/2)%W)/W;
+      T.pan.pan.cancelScheduledValues(t);
+      T.pan.pan.linearRampToValueAtTime(px*1.5-0.75,t+0.7);
+    }
+    const lvl=(bloom?0.048:0.020)+churn*(bloom?0.07:0.030);
+    for(let b=0;b<T.bands.length;b++){
+      const bd=T.bands[b];
+      bd.g.gain.cancelScheduledValues(t);
+      bd.g.gain.linearRampToValueAtTime(p.rows[b]*lvl,t+0.7);
+      bd.bp.Q.value=bloom?2.0:5.5;          // bloom widens every band at once
+    }
+    // species mix as a harmonic spectrum: 18 species, 18 partials
+    const im=new Float32Array(20), re=new Float32Array(20);
+    let any=false;
+    for(let s=1;s<=18;s++){
+      const a=p.hist[s];
+      if(a>0.0008){im[s]=Math.min(1,a*2.4);any=true}
+    }
+    if(any){
+      try{ T.osc.setPeriodicWave(this.ac.createPeriodicWave(re,im)); }catch(e){}
+    }
+    T.og.gain.cancelScheduledValues(t);
+    T.og.gain.linearRampToValueAtTime(p.live?(bloom?0.07:0.034):0,t+0.9);
+    T.ofilt.frequency.cancelScheduledValues(t);
+    T.ofilt.frequency.linearRampToValueAtTime(bloom?3000:460+churn*800,t+0.9);
   },
   accent(kind){
     const ac=this.ac,t=ac.currentTime;
@@ -1343,7 +1500,7 @@ function tick(){
     if(!S._lastStep||t-S._lastStep>WORK_STEP_MS){
       S._lastStep=t;g.advance();paint(g,off,octx,img);
       Audio_.setDensity(g.living/N);
-      Audio_.setActivity(g.ev,g.living/N,false);
+      Audio_.readGarden(g,false);
     }
     // arrive at the bloom instead of cutting to it
     if(!S._preBloom&&macroLen-(t-S.macroAt)<8000){S._preBloom=true;Audio_.preLift()}
@@ -1356,14 +1513,14 @@ function tick(){
     const want=Math.round(frac*BLOOM_STEPS);
     let guard=0;
     while(S._bloomDone<want&&guard<24){g.advance();S._bloomDone++;guard++}
-    Audio_.setActivity(g.ev,g.living/N,true);
+    Audio_.readGarden(g,true);
     paint(g,off,octx,img,Math.sin(frac*Math.PI));
     if(t>S.bloomUntil)enterBreak();
   }
   else if(S.mode==='break'){
     if(!S._lastStep||t-S._lastStep>BREAK_STEP_MS){
       S._lastStep=t;g.advance();paint(g,off,octx,img);
-      Audio_.setActivity(g.ev,g.living/N,false);
+      Audio_.readGarden(g,false);
     }
     if(t>=S.breakEnds)resumeWork();
   }

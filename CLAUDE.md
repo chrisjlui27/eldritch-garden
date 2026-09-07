@@ -83,11 +83,25 @@ change makes the app more engaging but more interruptive, it is a regression.
 | Macro | 30 min  | Bloom, then break: 5 min base + 1 min per Locked-in stretch, cap 5 bonus. |
 
 **The bloom is not the same garden running faster.** For its 22 seconds the field
-obeys three rulesets that exist nowhere else — mirror (it acquires a symmetry it
-never has in life), efflorescence (organic cells throw off the alien families),
-and transmutation (cells convert to whatever surrounds them) — with mortality
-suspended and colony caps lifted to 3×. Then `wither()` kills everything
-standing. You finish a macro with a dead garden and plant the next one on its
+obeys five rulesets that exist nowhere else, with mortality suspended and colony
+caps lifted to 3×:
+
+- **Mirror** — the field acquires a symmetry it never has in life.
+- **Efflorescence** — organic cells throw off the alien families.
+- **Conjunction** — a cell reacts with an *unlike neighbour* and becomes a third
+  thing, per the `REACT` table.
+- **Transmutation** — cells convert to whatever most surrounds them.
+- **Anastomosis** — every living colony reaches for its nearest neighbour and
+  draws a thread of prism between them.
+
+**Conjunction and anastomosis are the cross-cell rules, and the bloom is the only
+place they exist.** Everywhere else a cell consults its own species and its own
+colony and nothing else, which is exactly why the ordinary garden reads as
+separate organisms and the bloom reads as one connected thing. Keep that
+distinction: if cross-cell interaction leaks into normal growth, the bloom stops
+being categorically different.
+
+Then `wither()` kills everything standing. You finish a macro with a dead garden and plant the next one on its
 corpse, which stays visible underneath as the husk layer.
 
 That is also what keeps multi-macro sessions from silting up: every macro gets a
@@ -176,15 +190,32 @@ Confirmed working on Android. Voices accumulate for the life of a session and ar
 never pruned; the voice bus loses gain as 1/√n so the choir thickens and each
 voice recedes, which is how headroom is held without dropping anything.
 
-**The garden feeds the noise.** `Garden.ev` counts births, deaths, bites and
-mutations per step; `Audio_.setActivity` reads those counters and drives a noise
-bed whose filter and level follow them, so the texture shifts as the field grows,
-crowds and dies. Two accents — a mouth biting, mycelium mutating a colony — are
-hard-limited to a few seconds apart.
+**The garden is the substrate the texture is scanned out of.** It does not
+trigger sounds. `Garden.profile(x0,w)` is a read-only look at a column window —
+no rng, no mutation — returning the species mix and the density per horizontal
+band. `Audio_.readGarden` turns that into sound:
 
-Keep it continuous. One sound per cell event is the obvious idea and it is wrong:
-at thousands of cells a step it becomes a wall of noise within a minute. The sim
-never calls into `Audio_`; the audio reads counters. Sound must never be able to
+- **Species mix → harmonic spectrum.** Harmonic *k* of the field oscillator's
+  waveform is how much of species *k* is alive. The timbre is literally what is
+  growing.
+- **Density per band → a bandpass bank.** One filter per horizontal slice of the
+  grid, low bands at the bottom, matching how planted voices take pitch from row.
+  The noise takes the shape of where the garden actually is.
+- **Churn → level**, and the read head's column → stereo position.
+
+**The read head sweeps whether or not the garden moves**, about twenty seconds a
+lap. This is the part that makes it work: during work the sim advances one step
+per 1.8 s, so anything reading the whole field at once sits still for minutes.
+A travelling head keeps the timbre changing because it keeps arriving somewhere
+else. Measured on a completely frozen field, sweeping gives ~3× the spectral
+movement that whole-field reads gave over an entire macro.
+
+Two accents — a mouth biting, mycelium mutating a colony — are hard-limited to
+seconds apart, and they are the only event-triggered sounds.
+
+Keep it continuous, and keep it a *read*. One sound per cell event is the obvious
+idea and it is wrong: at thousands of cells a step it becomes a wall of noise
+within a minute. The sim never calls into `Audio_`. Sound must never be able to
 affect growth.
 
 ## Files
