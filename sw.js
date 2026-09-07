@@ -7,7 +7,7 @@
    Bump CACHE whenever index.html changes. The browser re-fetches this file on
    navigation, sees the new constant, and the activate handler drops the old
    cache. Forget to bump it and users keep running the previous build. */
-const CACHE = 'eldritch-garden-v2';
+const CACHE = 'eldritch-garden-v3';
 
 const SHELL = [
   '.',

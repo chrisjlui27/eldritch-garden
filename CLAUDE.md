@@ -82,6 +82,20 @@ change makes the app more engaging but more interruptive, it is a regression.
 | Meso  | 6 min   | Three buttons: Locked in / Drifted / Gone. Self-report, honor system. Locked in then offers a choice of two seeds, shown grown rather than named. |
 | Macro | 30 min  | Bloom, then break: 5 min base + 1 min per Locked-in stretch, cap 5 bonus. |
 
+**The bloom is not the same garden running faster.** For its 22 seconds the field
+obeys three rulesets that exist nowhere else — mirror (it acquires a symmetry it
+never has in life), efflorescence (organic cells throw off the alien families),
+and transmutation (cells convert to whatever surrounds them) — with mortality
+suspended and colony caps lifted to 3×. Then `wither()` kills everything
+standing. You finish a macro with a dead garden and plant the next one on its
+corpse, which stays visible underneath as the husk layer.
+
+That is also what keeps multi-macro sessions from silting up: every macro gets a
+fresh grid. If you change the bloom, keep that property.
+
+**Bloom and wither are logged as events**, not just UI phases. A replay that did
+not know a bloom happened would diverge from that point onward.
+
 **Touching the garden.** A tap anywhere, at any time, answers with a ripple, a
 chime pitched by row and panned by column, and a short haptic. That is the whole
 of it: looking away from the essay for a second costs nothing and gives something
@@ -103,10 +117,31 @@ enforcement and there should never be any.
 
 ## Species families
 
-- **Common** (micro tap): crust, filament, bead — green, bulk filler.
-- **Locked in**: spire, lattice, cistern — pale green/teal, structural.
-- **Drifted**: drifter, spore, tendril — purple, mobile.
-- **Gone**: rot, mouth, mycelium — mauve/red.
+Eighteen species, six families of three.
+
+- **Common** (micro tap): crust, filament, bead — violet-slate, bulk filler.
+- **Locked in**: spire, lattice, cistern — pale, structural.
+- **Drifted**: drifter, spore, tendril — violet, mobile.
+- **Gone**: rot, mouth, mycelium — magenta/rose, destructive.
+- **Geometry**: prism, helix, tessera — cold and mineral. Six fixed rays, a
+  winding arm, a rigid lattice with square holes.
+- **Aberration**: hollow, stutter, veil — a ring that forbids its own interior,
+  something that moves in jumps and never lands adjacent, and one that will only
+  grow on ground something has already died on.
+
+The first twelve are all, underneath, blobs and wanderers — organic. **The last
+six are the ones that make it alien**, because they produce geometry a growing
+thing would not: symmetry, straight rays, holes. Do not let them drift back
+toward blobs.
+
+The last two families have no trigger of their own. Any plant may come up alien
+instead of what its pool intended, per `ALIEN_CHANCE` — rarest on a micro tap,
+commonest on Gone. Specific conditions can come later.
+
+**The commons decide the colour of the field.** At ~20 colonies a macro they
+carry its mass, so while they were green the garden was green whatever else was
+planted. That is why they are violet-slate and why bead's ochre is the only warm
+thing left — the contrast is worth more than the consistency.
 
 Undocumented interactions that should survive any refactor: rot leaves substrate
 that doubles growth rate for whatever grows on it; mycelium hunts across the field
@@ -138,8 +173,19 @@ reward, and it is the half that does not require looking away from the essay.
 Treat it with the same care as the visuals.
 
 Confirmed working on Android. Voices accumulate for the life of a session and are
-never pruned; if a long multi-macro session ever runs out of headroom, that is a
-mixing problem to solve, not a reason to cap the garden.
+never pruned; the voice bus loses gain as 1/√n so the choir thickens and each
+voice recedes, which is how headroom is held without dropping anything.
+
+**The garden feeds the noise.** `Garden.ev` counts births, deaths, bites and
+mutations per step; `Audio_.setActivity` reads those counters and drives a noise
+bed whose filter and level follow them, so the texture shifts as the field grows,
+crowds and dies. Two accents — a mouth biting, mycelium mutating a colony — are
+hard-limited to a few seconds apart.
+
+Keep it continuous. One sound per cell event is the obvious idea and it is wrong:
+at thousands of cells a step it becomes a wall of noise within a minute. The sim
+never calls into `Audio_`; the audio reads counters. Sound must never be able to
+affect growth.
 
 ## Files
 
