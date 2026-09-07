@@ -2,7 +2,7 @@
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <title>Eldritch Garden</title>
 <link rel="manifest" href="manifest.webmanifest">
-<meta name="theme-color" content="#14170f">
+<meta name="theme-color" content="#111219">
 <meta name="mobile-web-app-capable" content="yes">
 <link rel="icon" href="icon-192.png" sizes="192x192" type="image/png">
 <link rel="apple-touch-icon" href="icon-192.png">
@@ -11,8 +11,8 @@
 <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,500;0,600;1,300&display=swap" rel="stylesheet">
 <style>
   :root{
-    --bog:#14170f;
-    --field:#1e2416;
+    --bog:#111219;
+    --field:#191c26;
     --lichen:#7a8f5c;
     --spore:#c9b072;
     --rot:#8a4f6d;
@@ -60,7 +60,7 @@
   #garden{position:absolute;inset:0;width:100%;height:100%;display:block;image-rendering:pixelated}
   #veil{
     position:absolute;inset:0;display:flex;align-items:center;justify-content:center;
-    background:rgba(20,23,15,.86);text-align:center;padding:28px;
+    background:rgba(17,18,25,.88);text-align:center;padding:28px;
     flex-direction:column;gap:20px;
   }
   #veil.gone{display:none}
@@ -177,32 +177,64 @@ const SP={
   crust:1, filament:2, bead:3,
   spire:4, lattice:5, cistern:6,
   drifter:7, spore:8, tendril:9,
-  rot:10, mouth:11, mycelium:12
+  rot:10, mouth:11, mycelium:12,
+  // Families five and six. The first twelve are all, underneath, blobs and
+  // wanderers — organic. These are not: fixed rays, a spiral, a rigid tiling, a
+  // ring that forbids its own interior, something that moves in jumps, and one
+  // that will only grow on ground a thing has already died on.
+  prism:13, helix:14, tessera:15,
+  hollow:16, stutter:17, veil:18
 };
 const MICRO_POOL=[SP.crust,SP.filament,SP.bead];
 const LOCKED_POOL=[SP.spire,SP.lattice,SP.cistern];
 const DRIFT_POOL=[SP.drifter,SP.spore,SP.tendril];
 const GONE_POOL=[SP.rot,SP.mouth,SP.mycelium];
+const GEOM_POOL=[SP.prism,SP.helix,SP.tessera];
+const ABERR_POOL=[SP.hollow,SP.stutter,SP.veil];
+const ALIEN_POOLS=[GEOM_POOL,ABERR_POOL];
+
+/* The two new families have no trigger of their own: any plant may come up alien
+   instead of what its pool intended. Rarest on a micro tap, since commons are
+   meant to be bulk, and commonest on Gone, which the design promises is the
+   wildest answer you can give. Undocumented, like everything else. */
+const ALIEN_CHANCE={micro:0.22,locked:0.24,drift:0.28,gone:0.38};
 
 const COLOR={};
-COLOR[SP.crust]=[0x6f,0x8a,0x52];
-COLOR[SP.filament]=[0x8f,0xa8,0x6a];
-COLOR[SP.bead]=[0xc9,0xb0,0x72];
-COLOR[SP.spire]=[0xa8,0xc0,0x8a];
-COLOR[SP.lattice]=[0xd8,0xe0,0xc0];
-COLOR[SP.cistern]=[0x7f,0xb0,0xa0];
-COLOR[SP.drifter]=[0xb0,0x8f,0xc0];
-COLOR[SP.spore]=[0xc9,0xa0,0xd0];
-COLOR[SP.tendril]=[0x9a,0x7f,0xb8];
-COLOR[SP.rot]=[0x8a,0x4f,0x6d];
-COLOR[SP.mouth]=[0xb0,0x40,0x5e];
-COLOR[SP.mycelium]=[0xd0,0x8a,0x9a];
+// Commons: pulled off grass-green into violet slate, so the field stops
+// reading as a lawn. They are still the bulk filler and still one family, but at
+// ~20 colonies a macro they set the overall colour of the garden, and while they
+// were green the garden was green whatever else was planted. Bead keeps its ochre
+// � it is the only warm thing left and the contrast is worth more than consistency.
+COLOR[SP.crust]=[0x5a,0x68,0x7c];
+COLOR[SP.filament]=[0x72,0x82,0xa0];
+COLOR[SP.bead]=[0xc0,0xa6,0x74];
+COLOR[SP.spire]=[0x8e,0xbc,0xa8];
+COLOR[SP.lattice]=[0xc8,0xc2,0xe6];
+COLOR[SP.cistern]=[0x66,0xb2,0xb4];
+// Drifted pushed further into violet
+COLOR[SP.drifter]=[0xa8,0x7a,0xd0];
+COLOR[SP.spore]=[0xd4,0x8c,0xe0];
+COLOR[SP.tendril]=[0x8a,0x6c,0xc8];
+// Gone made more lurid
+COLOR[SP.rot]=[0x9c,0x4a,0x78];
+COLOR[SP.mouth]=[0xc0,0x3a,0x62];
+COLOR[SP.mycelium]=[0xe0,0x8a,0xa8];
+// Geometry: cold, mineral, wrong for a garden
+COLOR[SP.prism]=[0xc8,0xdc,0xf0];
+COLOR[SP.helix]=[0x8a,0x8f,0xd8];
+COLOR[SP.tessera]=[0x6a,0x74,0xc0];
+// Aberration: lurid and luminous
+COLOR[SP.hollow]=[0x5a,0xc0,0xc8];
+COLOR[SP.stutter]=[0xd0,0x60,0xc8];
+COLOR[SP.veil]=[0xb8,0x9a,0xe0];
 
 const CLASS_OF={};
 MICRO_POOL.forEach(s=>CLASS_OF[s]='micro');
 LOCKED_POOL.forEach(s=>CLASS_OF[s]='locked');
 DRIFT_POOL.forEach(s=>CLASS_OF[s]='drift');
 GONE_POOL.forEach(s=>CLASS_OF[s]='gone');
+GEOM_POOL.forEach(s=>CLASS_OF[s]='geom');
+ABERR_POOL.forEach(s=>CLASS_OF[s]='aberr');
 
 /* ---------- grid ---------- */
 const W=76,H=112,N=W*H;
@@ -252,6 +284,14 @@ TRAIT[SP.tendril] ={life:380,maxR:20,cap:175};
 TRAIT[SP.rot]     ={life:600,maxR:16,cap:300};
 TRAIT[SP.mouth]   ={life:99999,maxR:22,cap:99999};
 TRAIT[SP.mycelium]={life:1400,maxR:99999,cap:240};
+// Geometry: long-lived and wide, because their whole point is a shape you can
+// read across the field rather than a patch you notice.
+TRAIT[SP.prism]   ={life:520,maxR:20,cap:150};
+TRAIT[SP.helix]   ={life:480,maxR:22,cap:160};
+TRAIT[SP.tessera] ={life:560,maxR:16,cap:190};
+TRAIT[SP.hollow]  ={life:440,maxR:17,cap:125};   // was 24/170: the rings swallowed the field
+TRAIT[SP.stutter] ={life:400,maxR:26,cap:130};
+TRAIT[SP.veil]    ={life:600,maxR:20,cap:200};
 
 const DEATH_P=0.10;                 // per-step chance of dying once past `life`
 const POP_CAP=Math.round(N*0.40);   // growth stops here; death brings it back down
@@ -279,6 +319,15 @@ class Garden{
     this.colonies=[];
     this.step=0;
     this.living=0;
+    // Bloom-only rules run when this is set. Nothing else in the sim reads the
+    // clock, so the flag is the only thing separating a bloom from ordinary time.
+    this.bloom=false;
+    // What happened during the last step, for the audio to listen to. Counters
+    // only — the sim never calls into Audio_, so sound can never affect growth.
+    this.ev={born:0,died:0,eaten:0,mutated:0};
+    // What died here, kept for rendering. The corpse of the last garden is the
+    // ground the next one grows on, and you should be able to see it.
+    this.husk=new Uint8Array(N);
   }
   idx(x,y){return y*W+x}
   inb(x,y){return x>=0&&x<W&&y>=0&&y<H}
@@ -332,10 +381,26 @@ class Garden{
     return best;
   }
 
+  /* Ends a bloom by killing everything standing. You finish a macro with a dead
+     garden and plant the next one on top of it — the husk stays visible
+     underneath, and the substrate every corpse leaves is what `veil` needs to
+     grow. It also hands each macro a fresh grid, which is what stops a long
+     multi-macro session from silting up. */
+  wither(){
+    const {sp,sub,cid,husk}=this;
+    for(let i=0;i<N;i++){
+      if(sp[i]){husk[i]=sp[i];sub[i]=Math.max(sub[i],1);sp[i]=EMPTY;cid[i]=0}
+    }
+    for(const c of this.colonies){c.alive=false;c.n=0}
+    this.living=0;
+    this.bloom=false;
+  }
+
   advance(){
     const {sp,age,dir,sub,cid,rng}=this;
     const nx0=this.next;nx0.set(sp);
     let live=this.living;
+    const ev=this.ev; ev.born=0;ev.died=0;ev.eaten=0;ev.mutated=0;
 
     // put() is the only way a growth rule may create a cell, so every brake lives
     // in one place: the global ceiling, the per-species extent cap, and colony
@@ -351,7 +416,9 @@ class Garden{
         col=this.colonies[c-1];
         const t=TRAIT[s];
         if(col){
-          if(col.n>=col.cap)return false;           // standing size cap
+          // Standing size cap — except in bloom, when colonies are allowed to burst
+          // far past anything ordinary growth permits.
+          if(col.n>=(this.bloom?col.cap*3:col.cap))return false;
           if(t){
             const ddx=x-col.ox,ddy=y-col.oy;
             if(ddx*ddx+ddy*ddy>t.maxR*t.maxR)return false;
@@ -360,13 +427,14 @@ class Garden{
       }
       nx0[i]=s;age[i]=0;dir[i]=Math.floor(rng()*4);cid[i]=c||0;
       if(col)col.n++;
-      live++;
+      live++;ev.born++;
       return true;
     };
     const kill=(x,y,rich)=>{
       const i=this.idx(x,y);
       if(nx0[i]){live--;const c=cid[i];if(c&&this.colonies[c-1])this.colonies[c-1].n--}
       nx0[i]=EMPTY;sub[i]=Math.max(sub[i],rich);cid[i]=0;
+      ev.died++;
     };
 
     for(let y=0;y<H;y++)for(let x=0;x<W;x++){
@@ -376,7 +444,10 @@ class Garden{
       age[i]++;
       const t=TRAIT[s];
       // mortality — the brake the sim was missing entirely
-      if(t&&age[i]>=t.life&&rng()<DEATH_P){kill(x,y,1);continue}
+      // Nothing ages out during a bloom. The whole field is dying at the end of it
+      // anyway, and suspending mortality is what lets twenty-two seconds read as a
+      // flowering rather than more of the same.
+      if(!this.bloom&&t&&age[i]>=t.life&&rng()<DEATH_P){kill(x,y,1);continue}
       // only rich substrate doubles growth, so ordinary death darkens the ground
       // without turning the whole field into a growth accelerator
       const boost=sub[i]>=2?2:1;
@@ -525,8 +596,136 @@ class Garden{
           if(col&&!col.alive&&rng()<0.015)kill(x,y,3);
           break;
         }
+        case SP.prism:{
+          // Six fixed rays from the colony origin. Nothing else in the sim has
+          // radial symmetry, and a six-pointed star reads as made rather than grown.
+          const col=me?this.colonies[me-1]:null;
+          if(col&&rng()<0.30*boost){
+            const ddx=x-col.ox,ddy=y-col.oy;
+            const r=Math.sqrt(ddx*ddx+ddy*ddy);
+            const a=r<1?rng()*Math.PI*2:Math.atan2(ddy,ddx);
+            const k=Math.round(a/(Math.PI/3))*(Math.PI/3);
+            put(Math.round(col.ox+Math.cos(k)*(r+1)),Math.round(col.oy+Math.sin(k)*(r+1)),SP.prism,me);
+          }
+          break;
+        }
+        case SP.helix:{
+          // Angle advances with radius, so it winds outward as an arm.
+          const col=me?this.colonies[me-1]:null;
+          if(col){
+            const ddx=x-col.ox,ddy=y-col.oy;
+            const r=Math.sqrt(ddx*ddx+ddy*ddy);
+            // Only endpoints extend — a cell with few neighbours is the tip of an arm.
+            // Letting every cell spawn made a scatter of dots; letting only one global
+            // tip advance made a single thread of 30 cells that vanished in a full
+            // field. This gives the several arms the seed cluster starts with.
+            if(this.ring8(x,y)<=2&&rng()<0.6*boost){
+              const a=Math.atan2(ddy,ddx)+0.30, nr=r+0.9;
+              put(Math.round(col.ox+Math.cos(a)*nr),Math.round(col.oy+Math.sin(a)*nr),SP.helix,me);
+            }
+          }
+          break;
+        }
+        case SP.tessera:{
+          // A rigid three-cell lattice: only the grid lines may ever be occupied,
+          // so it builds a mesh with square holes instead of filling anything.
+          if(rng()<0.42*boost){
+            const[dx,dy]=DIRS[Math.floor(rng()*4)];
+            const tx=x+dx,ty=y+dy;
+            if(tx%3===0||ty%3===0)put(tx,ty,SP.tessera,me);
+          }
+          break;
+        }
+        case SP.hollow:{
+          // An expanding ring that forbids its own interior. Unlike mouth it stays
+          // alive as a shell, so what you get is an outline of a thing.
+          const col=me?this.colonies[me-1]:null;
+          if(col){
+            const ddx=x-col.ox,ddy=y-col.oy;
+            const r=Math.sqrt(ddx*ddx+ddy*ddy);
+            const a=Math.atan2(ddy,ddx);
+            // Travel around the circumference first and push the shell outward only
+            // rarely, so the ring closes instead of wandering off as a crescent.
+            if(rng()<0.5*boost){
+              const da=(rng()<0.5?1:-1)*(1.6/Math.max(2,r));
+              put(Math.round(col.ox+Math.cos(a+da)*r),Math.round(col.oy+Math.sin(a+da)*r),SP.hollow,me);
+            } else if(rng()<0.16){
+              put(Math.round(col.ox+Math.cos(a)*(r+1)),Math.round(col.oy+Math.sin(a)*(r+1)),SP.hollow,me);
+            }
+            if(r>col.r)col.r=r;
+            else if(r<col.r-2.5)kill(x,y,1);
+          }
+          break;
+        }
+        case SP.stutter:{
+          // Moves in jumps and never lands adjacent, so it scatters in dashes.
+          if(rng()<0.26*boost){
+            const[dx,dy]=DIRS[Math.floor(rng()*4)];
+            const j=2+Math.floor(rng()*2);
+            put(x+dx*j,y+dy*j,SP.stutter,me);
+          }
+          break;
+        }
+        case SP.veil:{
+          // Will only colonise ground that something has already died on. In a
+          // multi-macro session it grows across the corpse of the last garden.
+          if(rng()<0.5*boost){
+            const[dx,dy]=DIRS[Math.floor(rng()*4)];
+            const tx=x+dx,ty=y+dy;
+            if(this.inb(tx,ty)&&sub[this.idx(tx,ty)])put(tx,ty,SP.veil,me);
+          }
+          break;
+        }
         case SP.mycelium:{
           break; // handled at colony level
+        }
+      }
+    }
+
+    /* ---- bloom-only rules ----
+       These fire during the bloom and at no other time. The point is that the
+       payoff is categorically different rather than the same garden running fast:
+       for twenty-two seconds the field obeys laws it never otherwise obeys.
+
+       All of it is driven from sim state and this.bloom, never from the clock, so
+       a replay that sets the same flag reproduces it exactly. */
+    if(this.bloom){
+      for(let y=0;y<H;y++)for(let x=0;x<W;x++){
+        const i=this.idx(x,y);const s=nx0[i];
+        if(!s)continue;
+
+        // 1. Mirror. The field acquires a symmetry it does not have in life —
+        //    growth is echoed across the vertical axis, so the garden turns into
+        //    something with a body plan.
+        if(rng()<0.05){
+          const mx=W-1-x;
+          if(mx!==x&&!nx0[this.idx(mx,y)])put(mx,y,s,cid[i]);
+        }
+
+        // 2. Efflorescence. Living cells throw off the alien families — the geometry
+        //    and aberration species erupt out of the organic ones. Gated on rich
+        //    ground at first, which turned out to have decayed almost to nothing by
+        //    bloom time, so the bloom added no species at all. Now any cell can.
+        if(rng()<0.006*(sub[i]>=2?3:1)){
+          const ap=ALIEN_POOLS[Math.floor(rng()*ALIEN_POOLS.length)];
+          const sp2=ap[Math.floor(rng()*3)];
+          const a=rng()*Math.PI*2, rr=2+rng()*4;
+          put(Math.round(x+Math.cos(a)*rr),Math.round(y+Math.sin(a)*rr),sp2,cid[i]);
+        }
+
+        // 3. Transmutation. Cells convert to whatever most surrounds them, so
+        //    colonies bleed into each other and the field reorganises.
+        if(rng()<0.012){
+          const tally={};let best=0,bs=0;
+          for(let dy=-2;dy<=2;dy++)for(let dx=-2;dx<=2;dx++){
+            const tx=x+dx,ty=y+dy;
+            if(!this.inb(tx,ty))continue;
+            const q=nx0[this.idx(tx,ty)];
+            if(!q||q===s)continue;
+            tally[q]=(tally[q]||0)+1;
+            if(tally[q]>bs){bs=tally[q];best=q}
+          }
+          if(best&&bs>=4){nx0[i]=best;age[i]=0}
         }
       }
     }
@@ -544,6 +743,7 @@ class Garden{
           if(!this.inb(tx,ty))continue;
           const j=this.idx(tx,ty);
           if(nx0[j]&&nx0[j]!==SP.mouth){
+            ev.eaten++;
             const was=cid[j];if(was&&this.colonies[was-1])this.colonies[was-1].n--;
             nx0[j]=EMPTY;sub[j]=3;cid[j]=0;live--;
           }
@@ -569,7 +769,8 @@ class Garden{
             if(nx0[j]&&nx0[j]!==SP.mycelium){
               // contact — mutate the touched colony's neighbourhood
               c.linked=true;
-              const mutant=[...MICRO_POOL,...LOCKED_POOL,...DRIFT_POOL,...GONE_POOL][Math.floor(rng()*12)];
+              const ALL=[...MICRO_POOL,...LOCKED_POOL,...DRIFT_POOL,...GONE_POOL,...GEOM_POOL,...ABERR_POOL];
+              const mutant=ALL[Math.floor(rng()*ALL.length)];
               for(let ddy=-7;ddy<=7;ddy++)for(let ddx=-7;ddx<=7;ddx++){
                 if(ddx*ddx+ddy*ddy>49)continue;
                 const mx=nxp+ddx,my=nyp+ddy;
@@ -577,7 +778,7 @@ class Garden{
                 const k=this.idx(mx,my);
                 // the cells keep their original colony — they were mutated, not
                 // replaced — but reset age so the mutation reads as new growth
-                if(nx0[k]){nx0[k]=mutant;age[k]=0}
+                if(nx0[k]){nx0[k]=mutant;age[k]=0;ev.mutated++}
               }
             } else if(!nx0[j]){
               nx0[j]=SP.mycelium;cid[j]=c.id+1;age[j]=0;live++;
@@ -631,13 +832,18 @@ function paint(g,target,tctx,timg,lift){
       const t=TRAIT[s];
       const k=(t?1.16-Math.min(1,g.age[i]/t.life)*0.36:1)*LM;
       d[o]=Math.min(255,c[0]*k);d[o+1]=Math.min(255,c[1]*k);d[o+2]=Math.min(255,c[2]*k);d[o+3]=255;
+    } else if(g.husk&&g.husk[i]){
+      // the previous garden: dead, but still legible beneath the new one
+      const hc=COLOR[g.husk[i]];
+      d[o]=18+hc[0]*0.17;d[o+1]=19+hc[1]*0.17;d[o+2]=27+hc[2]*0.17;d[o+3]=255;
     } else if(g.sub[i]){
       // scars sat almost on top of the background; lifted enough to read as
       // ground that remembers something without competing with living cells
+      // ground pitched cold and faintly violet rather than a green loam
       const t=g.sub[i];
-      d[o]=27+t*11;d[o+1]=32+t*9;d[o+2]=19+t*7;d[o+3]=255;
+      d[o]=26+t*10;d[o+1]=27+t*9;d[o+2]=40+t*13;d[o+3]=255;
     } else {
-      d[o]=20;d[o+1]=23;d[o+2]=15;d[o+3]=255;
+      d[o]=17;d[o+1]=18;d[o+2]=25;d[o+3]=255;
     }
   }
   tctx.putImageData(timg,0,0);
@@ -675,7 +881,7 @@ function blit(){
     cv.width=Math.round(r.width*dpr);cv.height=Math.round(r.height*dpr);
   }
   ctx.imageSmoothingEnabled=false;
-  ctx.fillStyle='#14170f';ctx.fillRect(0,0,cv.width,cv.height);
+  ctx.fillStyle="#111219";ctx.fillRect(0,0,cv.width,cv.height);
   // contain-fit: never crop the grid. Growth at the edges is content, and the
   // ochre bars in field test 1 were bead piling up against a boundary nobody
   // could see. Letterboxing is the lesser evil until the grid aspect is retuned
@@ -766,6 +972,7 @@ const Audio_={
     this.master.gain.linearRampToValueAtTime(0.0,ac.currentTime);
     this.master.gain.linearRampToValueAtTime(0.85,ac.currentTime+3);
     this.startPad();
+    this.startTexture();
   },
   startPad(){
     const ac=this.ac;
@@ -801,7 +1008,19 @@ const Audio_={
       const o2=ac.createOscillator();o2.type='sine';o2.frequency.value=freq*3.01;
       const g2=ac.createGain();g2.gain.value=0.35;o2.connect(g2);g2.connect(g);
       o.connect(g);o.start();o2.start();nodes.push(o,o2);
-    } else if(cls==='drift'){
+    } else if(cls==="geom"){
+      // mineral: a hard square wave through a high resonant peak
+      const o=ac.createOscillator();o.type="square";o.frequency.value=freq*4;
+      const bp=ac.createBiquadFilter();bp.type="bandpass";bp.frequency.value=freq*8;bp.Q.value=14;
+      const q=ac.createGain();q.gain.value=0.5;
+      o.connect(bp);bp.connect(q);q.connect(g);o.start();nodes.push(o);
+    } else if(cls==="aberr"){
+      // wrong: two oscillators a tritone apart, beating slowly
+      const o=ac.createOscillator();o.type="triangle";o.frequency.value=freq*2;
+      const o2=ac.createOscillator();o2.type="triangle";o2.frequency.value=freq*2*Math.SQRT2;
+      const q=ac.createGain();q.gain.value=0.45;o2.connect(q);q.connect(g);
+      o.connect(g);o.start();o2.start();nodes.push(o,o2);
+    } else if(cls==="drift"){
       const o=ac.createOscillator();o.type='sine';o.frequency.value=freq*2;
       const o2=ac.createOscillator();o2.type='sine';o2.frequency.value=freq*2*1.007;
       o.connect(g);o2.connect(g);o.start();o2.start();nodes.push(o,o2);
@@ -854,6 +1073,61 @@ const Audio_={
     g.gain.linearRampToValueAtTime(peak,t+0.012);
     g.gain.exponentialRampToValueAtTime(0.0006,t+dur);
     o.start(t);o2.start(t);o.stop(t+dur+0.4);o2.stop(t+dur+0.4);
+  },
+  /* A noise bed the garden plays through. Its filter and level follow what the
+     sim is doing, so the texture shifts as the field grows, crowds and dies
+     instead of sitting where it was at the first tap. */
+  startTexture(){
+    const ac=this.ac;
+    const buf=ac.createBuffer(1,Math.floor(ac.sampleRate*4),ac.sampleRate);
+    const d=buf.getChannelData(0);
+    for(let i=0;i<d.length;i++)d[i]=(Math.random()*2-1)*0.5;
+    const src=ac.createBufferSource();src.buffer=buf;src.loop=true;
+    const bp=ac.createBiquadFilter();bp.type="bandpass";bp.frequency.value=420;bp.Q.value=1.4;
+    const g=ac.createGain();g.gain.value=0;
+    src.connect(bp);bp.connect(g);g.connect(this.bus);
+    src.start();
+    this.tex={src,bp,g};
+  },
+  /* Driven from the sim per-step event counters. Continuous, not one sound per
+     event: with thousands of cells a step, per-event triggers would be a wall of
+     noise within a minute. The two accents are hard-limited so they stay
+     punctuation � they mark the only events that mean anything structural, a
+     mouth taking a bite and mycelium mutating a colony. */
+  setActivity(ev,density,bloom){
+    if(!this.ac||!this.tex)return;
+    const t=this.ac.currentTime;
+    if(t-(this._lastAct||0)<0.35)return;
+    this._lastAct=t;
+    const churn=Math.min(1,(ev.born+ev.died)/240);
+    const level=(bloom?0.055:0.020)+churn*(bloom?0.10:0.042);
+    const freq=260+churn*1500+density*900+(bloom?1200:0);
+    this.tex.g.gain.cancelScheduledValues(t);
+    this.tex.g.gain.linearRampToValueAtTime(level,t+0.5);
+    this.tex.bp.frequency.cancelScheduledValues(t);
+    this.tex.bp.frequency.linearRampToValueAtTime(freq,t+0.5);
+    this.tex.bp.Q.value=bloom?0.8:1.4+churn*2.2;
+    if(ev.eaten>18&&t-(this._lastEat||0)>3.0){this._lastEat=t;this.accent("eat")}
+    if(ev.mutated>0&&t-(this._lastMut||0)>4.0){this._lastMut=t;this.accent("mutate")}
+  },
+  accent(kind){
+    const ac=this.ac,t=ac.currentTime;
+    const g=ac.createGain();g.gain.value=0;g.connect(this.fx);
+    if(kind==="eat"){
+      const o=ac.createOscillator();o.type="sine";
+      o.frequency.setValueAtTime(90,t);o.frequency.exponentialRampToValueAtTime(28,t+0.9);
+      o.connect(g);o.start(t);o.stop(t+1.2);
+      g.gain.linearRampToValueAtTime(0.13,t+0.02);
+      g.gain.exponentialRampToValueAtTime(0.0006,t+1.1);
+    } else {
+      const o=ac.createOscillator();o.type="triangle";o.frequency.value=880;
+      const o2=ac.createOscillator();o2.type="triangle";o2.frequency.value=880*1.0136;
+      const bp=ac.createBiquadFilter();bp.type="bandpass";bp.frequency.value=1400;bp.Q.value=6;
+      o.connect(bp);o2.connect(bp);bp.connect(g);
+      o.start(t);o2.start(t);o.stop(t+2.0);o2.stop(t+2.0);
+      g.gain.linearRampToValueAtTime(0.06,t+0.35);
+      g.gain.exponentialRampToValueAtTime(0.0006,t+1.9);
+    }
   },
   /* The pad has been static since the first tap. Tying it to how much of the
      grid is alive makes the drone a function of the garden rather than a bed
@@ -931,7 +1205,7 @@ function newSession(seed){
     log:[],                       // {step,species,x,y,kind}
     t0:performance.now(),
     microAt:0,mesoAt:0,macroAt:0,
-    pendingMicro:false,pendingMeso:false,pendingChoice:null,
+    pendingMicro:false,pendingMeso:false,pendingChoice:null,pendingSpecies:null,
     mode:'work',                  // work | bloom | break | paused
     resumeMode:'work',
     breakEnds:0,bloomUntil:0,
@@ -939,6 +1213,20 @@ function newSession(seed){
     cycles:0,
     startedISO:new Date().toISOString()
   };
+}
+
+/* Which species a plant actually yields. Any plant may come up alien instead of
+   what its pool intended � see ALIEN_CHANCE. Draws from `pick`, never `rng`, so
+   the growth stream is untouched and replay reads the species from the log. */
+function speciesFor(kind){
+  const g=S.garden;
+  const pool=kind==="micro"?MICRO_POOL:kind==="locked"?LOCKED_POOL:
+             kind==="drift"?DRIFT_POOL:GONE_POOL;
+  if(g.pick()<(ALIEN_CHANCE[kind]||0)){
+    const ap=ALIEN_POOLS[Math.floor(g.pick()*ALIEN_POOLS.length)];
+    return ap[Math.floor(g.pick()*3)];
+  }
+  return pool[Math.floor(g.pick()*3)];
 }
 
 /* Every planted seed rings and ripples where it lands, whether you aimed it or
@@ -974,8 +1262,9 @@ function gardenTap(ev){
   const t=performance.now();
   if(S.mode==='work'&&S.pendingMicro&&!S.pendingMeso&&!S.pendingChoice){
     S.pendingMicro=false;S.tally.micro++;
-    plantSeed(MICRO_POOL[Math.floor(S.garden.pick()*3)],'micro',
+    plantSeed(S.pendingSpecies||speciesFor("micro"),"micro",
               [clamp(p[0],2,W-3),clamp(p[1],2,H-3)]);
+    S.pendingSpecies=null;
     renderAct();
     lastTap=t;
     return;
@@ -1001,11 +1290,11 @@ function seedPreview(species,px){
   const tc=c.getContext("2d"),im=tc.createImageData(22,22),d=im.data;
   for(let yy=0;yy<22;yy++)for(let xx=0;xx<22;xx++){
     const gx=27+xx,gy=45+yy,o=(yy*22+xx)*4;
-    let col=[20,23,15];
+    let col=[17,18,25];
     if(g.inb(gx,gy)){
       const j=g.idx(gx,gy);
       if(g.sp[j])col=COLOR[g.sp[j]];
-      else if(g.sub[j])col=[34,40,24];
+      else if(g.sub[j])col=[30,31,46];
     }
     d[o]=col[0];d[o+1]=col[1];d[o+2]=col[2];d[o+3]=255;
   }
@@ -1037,7 +1326,9 @@ function tick(){
     if(!S.pendingMeso&&!S.pendingChoice){
       if(t-S.microAt>=microLen){
         if(S.pendingMicro){S.tally.missed++}
-        S.pendingMicro=true;S.microAt=t;renderAct();
+        // chosen now rather than on tap, so the button can show what it is
+        S.pendingMicro=true;S.pendingSpecies=speciesFor("micro");
+        S.microAt=t;renderAct();
       }
     }
     // meso
@@ -1052,6 +1343,7 @@ function tick(){
     if(!S._lastStep||t-S._lastStep>WORK_STEP_MS){
       S._lastStep=t;g.advance();paint(g,off,octx,img);
       Audio_.setDensity(g.living/N);
+      Audio_.setActivity(g.ev,g.living/N,false);
     }
     // arrive at the bloom instead of cutting to it
     if(!S._preBloom&&macroLen-(t-S.macroAt)<8000){S._preBloom=true;Audio_.preLift()}
@@ -1064,11 +1356,15 @@ function tick(){
     const want=Math.round(frac*BLOOM_STEPS);
     let guard=0;
     while(S._bloomDone<want&&guard<24){g.advance();S._bloomDone++;guard++}
+    Audio_.setActivity(g.ev,g.living/N,true);
     paint(g,off,octx,img,Math.sin(frac*Math.PI));
     if(t>S.bloomUntil)enterBreak();
   }
   else if(S.mode==='break'){
-    if(!S._lastStep||t-S._lastStep>BREAK_STEP_MS){S._lastStep=t;g.advance();paint(g,off,octx,img)}
+    if(!S._lastStep||t-S._lastStep>BREAK_STEP_MS){
+      S._lastStep=t;g.advance();paint(g,off,octx,img);
+      Audio_.setActivity(g.ev,g.living/N,false);
+    }
     if(t>=S.breakEnds)resumeWork();
   }
   else if(S.mode==='replay'){
@@ -1112,12 +1408,20 @@ function enterBloom(){
   S.mode='bloom';
   S.bloomUntil=now()+BLOOM_MS;
   S._bloomDone=0;
+  // The bloom is a sim event, not just a phase of the UI, so it goes in the log.
+  // Without this a replay would never know a bloom happened and would diverge.
+  S.garden.bloom=true;
+  S.log.push({step:S.garden.step,kind:"bloom"});
   S.pendingMicro=false;S.pendingMeso=false;
   // the sweep is supposed to happen *over* the bloom, so it tracks the duration
   Audio_.setOpen(true,BLOOM_MS/1000*0.7);
   renderAct();
 }
 function enterBreak(){
+  if(S.garden.bloom){
+    S.log.push({step:S.garden.step,kind:"wither"});
+    S.garden.wither();
+  }
   const bonus=Math.min(5,S.tally.locked-(S._lockedAtLastBreak||0));
   S._lockedAtLastBreak=S.tally.locked;
   const mins=cfg.brk+Math.max(0,bonus);
@@ -1190,14 +1494,23 @@ function renderAct(){
     mk(row,'Gone',()=>answerMeso('gone'));
     return;
   }
-  const b=document.createElement('button');
-  b.className='btn big'+(S.pendingMicro?' waiting':'');
-  b.textContent=S.pendingMicro?'Plant':'—';
+  const b=document.createElement("button");
+  b.className="btn big"+(S.pendingMicro?" waiting":"");
+  if(S.pendingMicro&&S.pendingSpecies){
+    // The seed itself, not the word for it. Showing what is about to be planted
+    // makes the button and the garden read as the same gesture — tap here, or tap
+    // where you want it — and keeps the no-legend rule: it is a picture, not a name.
+    b.style.cssText="display:flex;align-items:center;justify-content:center;padding:15px 12px";
+    b.appendChild(seedPreview(S.pendingSpecies,52));
+  } else {
+    b.textContent="—";
+  }
   b.disabled=!S.pendingMicro;
   b.onclick=()=>{
     if(!S.pendingMicro)return;
     S.pendingMicro=false;S.tally.micro++;
-    plantSeed(MICRO_POOL[Math.floor(S.garden.pick()*3)],"micro");
+    plantSeed(S.pendingSpecies||speciesFor("micro"),"micro");
+    S.pendingSpecies=null;
     renderAct();
   };
   act.appendChild(b);
@@ -1215,11 +1528,12 @@ function answerMeso(kind){
   S.pendingMeso=false;
   S.microAt=now();
   if(kind==="locked"){
-    const a=Math.floor(S.garden.pick()*3);
-    let b=Math.floor(S.garden.pick()*2); if(b>=a)b++;
-    S.pendingChoice=[LOCKED_POOL[a],LOCKED_POOL[b]];
+    // two distinct options, either of which may turn out alien
+    let one=speciesFor("locked"),two=speciesFor("locked"),guard=0;
+    while(two===one&&guard++<8)two=speciesFor("locked");
+    S.pendingChoice=[one,two];
   } else {
-    plantSeed((kind==="drift"?DRIFT_POOL:GONE_POOL)[Math.floor(S.garden.pick()*3)],kind);
+    plantSeed(speciesFor(kind),kind);
   }
   renderAct();
 }
@@ -1334,7 +1648,7 @@ async function endSession(){
   // app stopped lying about persistence.
   document.getElementById("subNum").textContent=kept?"saved":"not saved";
   octx.clearRect(0,0,W,H);
-  const d=img.data;for(let i=0;i<N;i++){const o=i*4;d[o]=20;d[o+1]=23;d[o+2]=15;d[o+3]=255}
+  const d=img.data;for(let i=0;i<N;i++){const o=i*4;d[o]=17;d[o+1]=18;d[o+2]=25;d[o+3]=255}
   octx.putImageData(img,0,0);
 }
 
@@ -1374,11 +1688,18 @@ function regrow(entry,steps){
   const log=[...entry.log].sort((a,b)=>a.step-b.step);
   const total=steps||entry.steps||900;
   let li=0;
+  // The log holds two sorts of entry: seeds, and the phase events that change how
+  // the sim behaves. Both have to be replayed or the garden diverges.
+  const apply=e=>{
+    if(e.kind==="bloom")g.bloom=true;
+    else if(e.kind==="wither")g.wither();
+    else g.plant(e.species,e.x,e.y);
+  };
   for(let s=0;s<total;s++){
-    while(li<log.length&&log[li].step<=s){g.plant(log[li].species,log[li].x,log[li].y);li++}
+    while(li<log.length&&log[li].step<=s){apply(log[li]);li++}
     g.advance();
   }
-  while(li<log.length){g.plant(log[li].species,log[li].x,log[li].y);li++}
+  while(li<log.length){apply(log[li]);li++}
   return g;
 }
 
@@ -1401,7 +1722,11 @@ function replayStep(){
   if(!replayState)return;
   const r=replayState,g=S.garden;
   while(r.i<r.log.length&&r.log[r.i].step<=r.step){
-    const e=r.log[r.i];g.plant(e.species,e.x,e.y);Audio_.addVoice(e.species,e.x,e.y);r.i++;
+    const e=r.log[r.i];
+    if(e.kind==="bloom"){g.bloom=true;Audio_.setOpen(true,6)}
+    else if(e.kind==="wither"){g.wither()}
+    else {g.plant(e.species,e.x,e.y);Audio_.addVoice(e.species,e.x,e.y)}
+    r.i++;
   }
   g.advance();r.step++;
   if(r.step>r.total&&r.i>=r.log.length){S.mode='break';S.breakEnds=now()+1;}
@@ -1418,7 +1743,7 @@ if("serviceWorker" in navigator){
 /* ---------- boot ---------- */
 loadCfg();
 {
-  const d=img.data;for(let i=0;i<N;i++){const o=i*4;d[o]=20;d[o+1]=23;d[o+2]=15;d[o+3]=255}
+  const d=img.data;for(let i=0;i<N;i++){const o=i*4;d[o]=17;d[o+1]=18;d[o+2]=25;d[o+3]=255}
   octx.putImageData(img,0,0);
 }
 requestAnimationFrame(tick);
